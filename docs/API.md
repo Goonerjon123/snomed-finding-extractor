@@ -2,9 +2,9 @@
 
 ## Intended Use
 
-The engine supports clinicians by identifying candidate SNOMED CT finding codes mentioned in SOAP free text for clinician review and confirmation.
+The engine supports clinicians by identifying candidate SNOMED CT finding codes mentioned in SOAP free text and candidate SNOMED CT observable entity codes mentioned in the Objective field for clinician review and confirmation.
 
-## Request
+## Finding Request
 
 `POST /v1/extract`
 
@@ -21,6 +21,21 @@ The engine supports clinicians by identifying candidate SNOMED CT finding codes 
 ```
 
 All SOAP text fields default to an empty string. `refset_id`, when supplied, must match the loaded artefact.
+
+## Observable Entity Request
+
+`POST /v1/extract-observables`
+
+```json
+{
+  "note_id": "optional-local-id",
+  "objective": "BP 128/82. HR 76. RR 14. Sats 98%.",
+  "include_suppressed": false,
+  "refset_id": "optional-loaded-observations-refset-id"
+}
+```
+
+The observable endpoint only accepts Objective text. It should be backed by an artefact built from the observations value set, for example refset `785380551000001102`.
 
 ## Response
 
@@ -49,6 +64,8 @@ All SOAP text fields default to an empty string. `refset_id`, when supplied, mus
   "elapsed_micros": 900
 }
 ```
+
+The response shape is the same for both endpoints. For `/v1/extract-observables`, every returned `field` is `objective`, and the `concept_id` values come from the loaded observable entity artefact.
 
 ## Suppressed Assertions
 

@@ -1,0 +1,6 @@
+{
+  "note_id": "example-observation-1",
+  "objective": "BP 128/82. HR 76. RR 14. Sats 98%. No temp recorded.",
+  "include_suppressed": true,
+  "refset_id": "785380551000001102"
+}

@@ -2,8 +2,8 @@
 name = "snomed-finding-extractor"
 version = "0.1.0"
 edition = "2021"
-description = "Fast, explainable SNOMED CT finding extraction for clinician-confirmed SOAP note coding."
-repository = "https://github.com/your-org/snomed-finding-extractor"
+description = "Fast, explainable SNOMED CT finding and observable entity extraction for clinician-confirmed SOAP note coding."
+repository = "https://github.com/Goonerjon123/snomed-finding-extractor"
 publish = false
 
 [lib]

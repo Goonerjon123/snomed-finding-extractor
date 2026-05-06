@@ -8,7 +8,7 @@ The production terminology path is:
 2. A supplied refset or openEHR value set manifest limiting concepts to the intended clinical scope.
 3. A generated runtime artefact containing only the terms needed by the extractor.
 
-The supplied current value set path is:
+The supplied current finding value set path is:
 
 ```text
 D:\SnoBehr\Refsets for Export\symptoms-20260201.openehr-valueset.json
@@ -21,6 +21,20 @@ The file inspected on 6 May 2026 is an openEHR terminology value set binding man
 - terminology release date: `20260201`
 - active member count: `128202`
 - member shape: `code`, `display`, `fsn`, `active`, `system`
+
+The supplied current observable entity value set path is:
+
+```text
+D:\SnoBehr\Refsets for Export\Observables\observations-20260201.openehr-valueset.json
+```
+
+The file inspected on 6 May 2026 is an openEHR terminology value set binding manifest with:
+
+- id: `observations`
+- refset id: `785380551000001102`
+- terminology release date: `20260201`
+- active member count: `6362`
+- member shape: `code`, `display`, `fsn`, `active`, `system`, `descriptions`
 
 ## Repository Rule
 
@@ -45,6 +59,7 @@ The generated artefact contains:
 - active status;
 - descriptions, synonyms, description IDs, and acceptability from enriched openEHR exports or RF2 language data;
 - runtime variants;
+- built-in observable aliases for common Objective abbreviations when the matching observable concept is present in the artefact;
 - reviewed clinical aliases, when supplied at build time as a fallback for content not present in the export;
 - artefact hash.
 

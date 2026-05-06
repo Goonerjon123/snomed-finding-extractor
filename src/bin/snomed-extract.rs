@@ -4,7 +4,9 @@ use snomed_finding_extractor::rf2::{
     build_from_openehr_valueset, build_from_rf2_snapshot, Rf2BuildInput,
 };
 use snomed_finding_extractor::synthetic::{generate_synthetic_cases, SyntheticCase};
-use snomed_finding_extractor::{AliasSet, ExtractRequest, Extractor, TerminologyArtefact};
+use snomed_finding_extractor::{
+    AliasSet, ExtractRequest, Extractor, ObservableExtractRequest, TerminologyArtefact,
+};
 use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::{self, BufReader, Read};
@@ -21,6 +23,16 @@ struct Cli {
 enum Command {
     /// Extract candidate findings from a SOAP JSON request.
     Extract {
+        #[arg(long)]
+        artefact: PathBuf,
+        #[arg(long)]
+        input: Option<PathBuf>,
+        #[arg(long)]
+        include_suppressed: bool,
+    },
+
+    /// Extract observable entity candidates from an Objective-only JSON request.
+    ExtractObservables {
         #[arg(long)]
         artefact: PathBuf,
         #[arg(long)]
@@ -94,6 +106,19 @@ fn main() -> Result<()> {
                 .context("failed to parse extraction request JSON")?;
             request.include_suppressed |= include_suppressed;
             let response = extractor.extract(request)?;
+            println!("{}", serde_json::to_string_pretty(&response)?);
+        }
+        Command::ExtractObservables {
+            artefact,
+            input,
+            include_suppressed,
+        } => {
+            let extractor = load_extractor(&artefact)?;
+            let mut request: ObservableExtractRequest =
+                serde_json::from_str(&read_input(input.as_ref())?)
+                    .context("failed to parse observable extraction request JSON")?;
+            request.include_suppressed |= include_suppressed;
+            let response = extractor.extract_observables(request)?;
             println!("{}", serde_json::to_string_pretty(&response)?);
         }
         Command::BuildOpenehr {

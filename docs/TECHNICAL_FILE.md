@@ -2,7 +2,7 @@
 
 ## Intended Purpose
 
-Supports clinicians by identifying candidate SNOMED CT finding codes mentioned in SOAP free text for clinician review and confirmation.
+Supports clinicians by identifying candidate SNOMED CT finding codes mentioned in SOAP free text and candidate SNOMED CT observable entity codes mentioned in the Objective field for clinician review and confirmation.
 
 The engine is not intended to diagnose, triage, recommend treatment, or automatically code the medical record without clinician confirmation.
 
@@ -11,6 +11,7 @@ The engine is not intended to diagnose, triage, recommend treatment, or automati
 - Rust deterministic runtime.
 - Offline terminology artefact builder.
 - SOAP-aware extraction API.
+- Objective-only observable entity extraction API.
 - Optional HTTP sidecar.
 - Synthetic validation and evaluation tooling.
 

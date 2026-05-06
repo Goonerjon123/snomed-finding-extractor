@@ -16,6 +16,16 @@ cargo run --bin snomed-extract -- build-openehr `
   --output "out\symptoms-20260201.artefact.json"
 ```
 
+Build the Objective-field observable entity artefact from the observations value set:
+
+```powershell
+cargo run --bin snomed-extract -- build-openehr `
+  --valueset "D:\SnoBehr\Refsets for Export\Observables\observations-20260201.openehr-valueset.json" `
+  --output "out\observations-20260201.artefact.json"
+```
+
+The observations importer also adds a small versioned set of built-in Objective aliases when the matching observable concept is in the refset, including `BP`, `HR`, `RR`, `SpO2`, `sats`, `O2 sats`, `temp`, and `BMI`.
+
 Production deployments should build this artefact during release packaging, record the source value set hash, and keep the generated artefact out of public source control unless SNOMED licensing has been explicitly approved.
 
 ## 2. Run The API Sidecar
@@ -23,9 +33,12 @@ Production deployments should build this artefact during release packaging, reco
 ```powershell
 cargo run --features http --bin snomed-serve -- `
   --artefact "out\symptoms-20260201.artefact.json" `
+  --observables-artefact "out\observations-20260201.artefact.json" `
   --host 127.0.0.1 `
   --port 8060
 ```
+
+You can run only the observable endpoint by omitting `--artefact` and supplying `--observables-artefact`.
 
 Health check:
 
@@ -33,10 +46,17 @@ Health check:
 GET http://127.0.0.1:8060/healthz
 ```
 
-Extraction endpoint:
+Finding extraction endpoint:
 
 ```http
 POST http://127.0.0.1:8060/v1/extract
+Content-Type: application/json
+```
+
+Observable entity extraction endpoint:
+
+```http
+POST http://127.0.0.1:8060/v1/extract-observables
 Content-Type: application/json
 ```
 
@@ -61,7 +81,20 @@ Fields:
 - `refset_id`: optional guard. If provided, it must match the loaded artefact refset.
 - `note_id`: optional caller-owned identifier echoed in the response.
 
-## 4. Response Shape
+## 4. Observable Request Shape
+
+```json
+{
+  "note_id": "optional-note-id",
+  "objective": "BP 128/82. HR 76. RR 14. Sats 98%. No temp recorded.",
+  "include_suppressed": true,
+  "refset_id": "785380551000001102"
+}
+```
+
+The observable endpoint deliberately accepts only the `objective` field. It returns SNOMED CT observable entity candidates from the observations artefact, not finding candidates from the symptoms artefact.
+
+## 5. Response Shape
 
 ```json
 {
@@ -91,7 +124,7 @@ Fields:
       "normalized_match": "shortness of breath on exertion",
       "assertion": "planned",
       "rule_ids": ["PLAN_FIELD_REVIEW_ONLY", "CTX_PLANNED_ACTION"],
-      "explanation": "Suppressed: plan field mentions are review-only unless a future ruleset explicitly permits them; the mention is part of a planned action rather than an asserted finding."
+      "explanation": "Suppressed: plan field mentions are review-only unless a future ruleset explicitly permits them; the mention is part of a planned action rather than an asserted concept."
     }
   ],
   "terminology_version": "http://snomed.info/sct/999000031000000106/version/20260201",
@@ -102,7 +135,9 @@ Fields:
 }
 ```
 
-## 5. Example Client Call
+For `/v1/extract-observables`, every accepted or suppressed item has `"field": "objective"`.
+
+## 6. Example Client Calls
 
 ```powershell
 $body = @{
@@ -121,7 +156,31 @@ Invoke-RestMethod `
   -Body $body
 ```
 
-## 6. Integration Rules
+Observable entities from the Objective field:
+
+```powershell
+$body = @{
+  objective = "BP 128/82. HR 76. RR 14. Sats 98%. No temp recorded."
+  include_suppressed = $true
+  refset_id = "785380551000001102"
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+  -Uri "http://127.0.0.1:8060/v1/extract-observables" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+## 7. CLI Calls
+
+```powershell
+cargo run --bin snomed-extract -- extract-observables `
+  --artefact "out\observations-20260201.artefact.json" `
+  --input "fixtures\example-observable-request.json"
+```
+
+## 8. Integration Rules
 
 - Treat `matches` as candidate concepts for clinician confirmation, not automatically confirmed record entries.
 - Use `suppressed` matches to show why terms were not coded, especially negated and planned findings.
@@ -129,6 +188,6 @@ Invoke-RestMethod `
 - Do not log raw note text in the calling service unless your EPR logging policy explicitly permits it.
 - Rebuild and revalidate the artefact whenever the value set, SNOMED release, synonym export, or ruleset changes.
 
-## 7. Browser Console
+## 9. Browser Console
 
-The server also serves `/` as a local manual test console. This is not the integration surface for the EPR; use `/v1/extract` for backend integration.
+The server also serves `/` as a local manual test console. This is not the integration surface for the EPR; use `/v1/extract` and `/v1/extract-observables` for backend integration.

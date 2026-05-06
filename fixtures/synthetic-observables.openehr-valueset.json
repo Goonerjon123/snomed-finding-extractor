@@ -1,0 +1,122 @@
+{
+  "schema": "https://snoBehr.local/schemas/openehr-terminology-binding-manifest-1.0",
+  "kind": "openEHR terminology value set binding aid",
+  "id": "observations",
+  "name": "Observations",
+  "description": "Tiny test fixture only; not SNOMED content.",
+  "clinicalInformationModel": "openEHR archetypes/templates",
+  "terminology": {
+    "system": "http://snomed.info/sct",
+    "edition": "http://snomed.info/sct/999000031000000106",
+    "version": "http://snomed.info/sct/999000031000000106/version/20260201",
+    "releaseDate": "20260201"
+  },
+  "valueSet": {
+    "fhirCanonical": "https://example.invalid/fhir/ValueSet/observations",
+    "rf2RefsetId": "785380551000001102",
+    "rf2ModuleId": "900000000000207008"
+  },
+  "members": [
+    {
+      "code": "2000000001",
+      "display": "Blood pressure",
+      "fsn": "Blood pressure (observable entity)",
+      "active": true,
+      "system": "http://snomed.info/sct",
+      "descriptions": [
+        {
+          "descriptionId": "200000000101",
+          "term": "Blood pressure",
+          "type": "preferred",
+          "acceptability": "preferred",
+          "active": true
+        },
+        {
+          "descriptionId": "200000000102",
+          "term": "BP - Blood pressure",
+          "type": "synonym",
+          "acceptability": "acceptable",
+          "active": true
+        }
+      ]
+    },
+    {
+      "code": "2000000002",
+      "display": "Heart rate",
+      "fsn": "Heart rate (observable entity)",
+      "active": true,
+      "system": "http://snomed.info/sct",
+      "descriptions": [
+        {
+          "descriptionId": "200000000201",
+          "term": "Heart rate",
+          "type": "preferred",
+          "acceptability": "preferred",
+          "active": true
+        }
+      ]
+    },
+    {
+      "code": "2000000003",
+      "display": "Respiratory rate",
+      "fsn": "Respiratory rate (observable entity)",
+      "active": true,
+      "system": "http://snomed.info/sct",
+      "descriptions": [
+        {
+          "descriptionId": "200000000301",
+          "term": "Respiratory rate",
+          "type": "preferred",
+          "acceptability": "preferred",
+          "active": true
+        },
+        {
+          "descriptionId": "200000000302",
+          "term": "RR - Respiratory rate",
+          "type": "synonym",
+          "acceptability": "acceptable",
+          "active": true
+        }
+      ]
+    },
+    {
+      "code": "2000000004",
+      "display": "Peripheral oxygen saturation",
+      "fsn": "Peripheral oxygen saturation (observable entity)",
+      "active": true,
+      "system": "http://snomed.info/sct",
+      "descriptions": [
+        {
+          "descriptionId": "200000000401",
+          "term": "Peripheral oxygen saturation",
+          "type": "preferred",
+          "acceptability": "preferred",
+          "active": true
+        },
+        {
+          "descriptionId": "200000000402",
+          "term": "SpO2 - saturation of peripheral oxygen",
+          "type": "synonym",
+          "acceptability": "acceptable",
+          "active": true
+        }
+      ]
+    },
+    {
+      "code": "2000000005",
+      "display": "Body temperature",
+      "fsn": "Body temperature (observable entity)",
+      "active": true,
+      "system": "http://snomed.info/sct",
+      "descriptions": [
+        {
+          "descriptionId": "200000000501",
+          "term": "Body temperature",
+          "type": "preferred",
+          "acceptability": "preferred",
+          "active": true
+        }
+      ]
+    }
+  ]
+}

@@ -22,6 +22,7 @@ pub fn build_from_openehr_valueset(path: impl AsRef<Path>) -> Result<Terminology
             continue;
         }
 
+        let observable_entity = is_observable_entity(member.fsn.as_deref());
         let mut variants = Vec::new();
         let mut descriptions = Vec::new();
         push_variant(
@@ -72,6 +73,9 @@ pub fn build_from_openehr_valueset(path: impl AsRef<Path>) -> Result<Terminology
                     derived.allow_ambiguous,
                 );
             }
+        }
+        if observable_entity {
+            push_observable_entity_aliases(&mut variants, member.display.as_str());
         }
 
         concepts.push(ConceptEntry {
@@ -431,6 +435,37 @@ fn derive_description_variants(term: &str) -> Vec<DerivedVariant> {
     variants
 }
 
+fn push_observable_entity_aliases(variants: &mut Vec<TermVariant>, preferred_term: &str) {
+    let aliases: &[(&str, bool)] = match normalize_term(preferred_term).as_str() {
+        "blood pressure" => &[("BP", true)],
+        "heart rate" => &[("HR", true)],
+        "pulse rate" => &[("pulse", false), ("PR", true)],
+        "respiratory rate" => &[("RR", true), ("BR", true), ("resp rate", false)],
+        "peripheral oxygen saturation" => &[
+            ("SpO2", true),
+            ("sats", false),
+            ("O2 sats", false),
+            ("oxygen sats", false),
+        ],
+        "haemoglobin saturation with oxygen" | "hemoglobin saturation with oxygen" => {
+            &[("oxygen saturation", false)]
+        }
+        "body temperature" => &[("temp", false), ("temperature", false), ("BT", true)],
+        "body mass index" => &[("BMI", true)],
+        _ => &[],
+    };
+
+    for (alias, allow_ambiguous) in aliases {
+        push_variant(
+            variants,
+            alias,
+            "built-in-observable-alias",
+            None,
+            *allow_ambiguous,
+        );
+    }
+}
+
 fn split_acronym_expansion(term: &str) -> Option<(&str, &str)> {
     let (prefix, expansion) = term.split_once(" - ")?;
     let prefix = prefix.trim();
@@ -475,6 +510,16 @@ fn strip_fsn_semantic_tag(value: &str) -> Option<&str> {
     let trimmed = value.trim();
     let idx = trimmed.rfind(" (")?;
     Some(trimmed[..idx].trim())
+}
+
+fn is_observable_entity(fsn: Option<&str>) -> bool {
+    fsn.map(|value| {
+        value
+            .trim()
+            .to_ascii_lowercase()
+            .ends_with("(observable entity)")
+    })
+    .unwrap_or(false)
 }
 
 fn description_type_name(type_id: &str) -> &'static str {

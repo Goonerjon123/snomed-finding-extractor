@@ -185,7 +185,7 @@ pub fn classify_assertion(
         hits.push(RuleHit {
             assertion: AssertionStatus::Planned,
             rule_id: "CTX_PLANNED_ACTION",
-            explanation: "the mention is part of a planned action rather than an asserted finding",
+            explanation: "the mention is part of a planned action rather than an asserted concept",
             priority: 41,
         });
     }
