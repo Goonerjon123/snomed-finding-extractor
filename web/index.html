@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SNOMED Finding Extractor</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Local test console</p>
+          <h1>SNOMED Finding Extractor</h1>
+        </div>
+        <div class="status" id="status">Ready</div>
+      </header>
+
+      <section class="workspace" aria-label="SOAP note extraction">
+        <form class="editor" id="extract-form">
+          <div class="toolbar">
+            <label class="field compact">
+              <span>Note ID</span>
+              <input id="note-id" name="note-id" autocomplete="off" value="local-test-1" />
+            </label>
+            <label class="field compact">
+              <span>Refset ID</span>
+              <input id="refset-id" name="refset-id" autocomplete="off" />
+            </label>
+            <label class="toggle">
+              <input id="include-suppressed" type="checkbox" checked />
+              <span>Suppressed</span>
+            </label>
+            <button class="secondary" type="button" id="sample-button">Sample</button>
+            <button class="secondary" type="button" id="clear-button">Clear</button>
+            <button class="primary" type="submit">Run</button>
+          </div>
+
+          <div class="soap-grid">
+            <label class="field soap-field">
+              <span>History</span>
+              <textarea id="history" spellcheck="true"></textarea>
+            </label>
+            <label class="field soap-field">
+              <span>Objective</span>
+              <textarea id="objective" spellcheck="true"></textarea>
+            </label>
+            <label class="field soap-field">
+              <span>Assessment</span>
+              <textarea id="assessment" spellcheck="true"></textarea>
+            </label>
+            <label class="field soap-field">
+              <span>Plan</span>
+              <textarea id="plan" spellcheck="true"></textarea>
+            </label>
+          </div>
+        </form>
+
+        <section class="results" aria-label="Extraction results">
+          <div class="metrics" id="metrics">
+            <div>
+              <span class="metric-value">0</span>
+              <span class="metric-label">Matches</span>
+            </div>
+            <div>
+              <span class="metric-value">0</span>
+              <span class="metric-label">Suppressed</span>
+            </div>
+            <div>
+              <span class="metric-value">0 us</span>
+              <span class="metric-label">Engine time</span>
+            </div>
+          </div>
+
+          <div class="result-section">
+            <div class="section-title">
+              <h2>Matches</h2>
+              <span id="match-count">0</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Field</th>
+                    <th>Code</th>
+                    <th>Term</th>
+                    <th>Text</th>
+                    <th>Evidence</th>
+                  </tr>
+                </thead>
+                <tbody id="matches-body"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="result-section">
+            <div class="section-title">
+              <h2>Suppressed</h2>
+              <span id="suppressed-count">0</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Field</th>
+                    <th>Code</th>
+                    <th>Term</th>
+                    <th>Status</th>
+                    <th>Evidence</th>
+                  </tr>
+                </thead>
+                <tbody id="suppressed-body"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <pre class="raw" id="raw-json" aria-label="Raw JSON response"></pre>
+        </section>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

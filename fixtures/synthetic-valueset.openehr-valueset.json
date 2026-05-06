@@ -1,0 +1,88 @@
+{
+  "schema": "https://snoBehr.local/schemas/openehr-terminology-binding-manifest-1.0",
+  "kind": "openEHR terminology value set binding aid",
+  "id": "symptoms",
+  "name": "Symptoms",
+  "description": "Tiny test fixture only; not SNOMED content.",
+  "clinicalInformationModel": "openEHR archetypes/templates",
+  "terminology": {
+    "system": "http://snomed.info/sct",
+    "edition": "http://snomed.info/sct/999000031000000106",
+    "version": "http://snomed.info/sct/999000031000000106/version/20260201",
+    "releaseDate": "20260201"
+  },
+  "valueSet": {
+    "fhirCanonical": "https://example.invalid/fhir/ValueSet/symptoms",
+    "rf2RefsetId": "238873041000001104",
+    "rf2ModuleId": "900000000000207008"
+  },
+  "members": [
+    {
+      "code": "1000000001",
+      "display": "Chest pain",
+      "fsn": "Chest pain (finding)",
+      "active": true,
+      "system": "http://snomed.info/sct"
+    },
+    {
+      "code": "1000000002",
+      "display": "Cough",
+      "fsn": "Cough (finding)",
+      "active": true,
+      "system": "http://snomed.info/sct"
+    },
+    {
+      "code": "1000000006",
+      "display": "Dyspnea",
+      "fsn": "Dyspnea (finding)",
+      "active": true,
+      "system": "http://snomed.info/sct",
+      "descriptions": [
+        {
+          "descriptionId": "100000000601",
+          "term": "Dyspnea",
+          "type": "preferred",
+          "acceptability": "preferred",
+          "active": true
+        },
+        {
+          "descriptionId": "100000000602",
+          "term": "Breathlessness",
+          "type": "synonym",
+          "acceptability": "acceptable",
+          "active": true
+        },
+        {
+          "descriptionId": "100000000603",
+          "term": "SOB - Shortness of breath",
+          "type": "synonym",
+          "acceptability": "acceptable",
+          "active": true
+        }
+      ]
+    },
+    {
+      "code": "1000000007",
+      "display": "Dyspnea on exertion",
+      "fsn": "Dyspnea on exertion (finding)",
+      "active": true,
+      "system": "http://snomed.info/sct",
+      "descriptions": [
+        {
+          "descriptionId": "100000000701",
+          "term": "Dyspnea on exertion",
+          "type": "preferred",
+          "acceptability": "preferred",
+          "active": true
+        },
+        {
+          "descriptionId": "100000000702",
+          "term": "SOBOE - Shortness of breath on exertion",
+          "type": "synonym",
+          "acceptability": "acceptable",
+          "active": true
+        }
+      ]
+    }
+  ]
+}

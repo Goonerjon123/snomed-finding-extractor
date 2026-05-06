@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "terminology_version": "fixture-20260506",
+  "source_release": "fixture",
+  "refset_id": "fixture-symptoms",
+  "generated_at_utc": "fixture",
+  "concepts": [
+    {
+      "concept_id": "1000000001",
+      "active": true,
+      "preferred_term": "Chest pain",
+      "descriptions": [],
+      "variants": [
+        {
+          "text": "chest pain",
+          "source": "fixture",
+          "description_id": null,
+          "allow_ambiguous": false
+        },
+        {
+          "text": "pain in chest",
+          "source": "fixture",
+          "description_id": null,
+          "allow_ambiguous": false
+        }
+      ]
+    },
+    {
+      "concept_id": "1000000002",
+      "active": true,
+      "preferred_term": "Cough",
+      "descriptions": [],
+      "variants": [
+        {
+          "text": "cough",
+          "source": "fixture",
+          "description_id": null,
+          "allow_ambiguous": false
+        }
+      ]
+    },
+    {
+      "concept_id": "1000000003",
+      "active": true,
+      "preferred_term": "Asthma",
+      "descriptions": [],
+      "variants": [
+        {
+          "text": "asthma",
+          "source": "fixture",
+          "description_id": null,
+          "allow_ambiguous": false
+        }
+      ]
+    },
+    {
+      "concept_id": "1000000004",
+      "active": true,
+      "preferred_term": "Depression",
+      "descriptions": [],
+      "variants": [
+        {
+          "text": "depression",
+          "source": "fixture",
+          "description_id": null,
+          "allow_ambiguous": false
+        }
+      ]
+    },
+    {
+      "concept_id": "1000000005",
+      "active": true,
+      "preferred_term": "Diabetes mellitus",
+      "descriptions": [],
+      "variants": [
+        {
+          "text": "diabetes",
+          "source": "fixture",
+          "description_id": null,
+          "allow_ambiguous": false
+        },
+        {
+          "text": "diabetes mellitus",
+          "source": "fixture",
+          "description_id": null,
+          "allow_ambiguous": false
+        }
+      ]
+    },
+    {
+      "concept_id": "1000000006",
+      "active": true,
+      "preferred_term": "Dyspnea",
+      "descriptions": [],
+      "variants": [
+        {
+          "text": "dyspnea",
+          "source": "fixture",
+          "description_id": null,
+          "allow_ambiguous": false
+        }
+      ]
+    },
+    {
+      "concept_id": "1000000007",
+      "active": true,
+      "preferred_term": "Dyspnea on exertion",
+      "descriptions": [],
+      "variants": [
+        {
+          "text": "dyspnea on exertion",
+          "source": "fixture",
+          "description_id": null,
+          "allow_ambiguous": false
+        }
+      ]
+    }
+  ],
+  "artefact_hash": "UNVERIFIED"
+}

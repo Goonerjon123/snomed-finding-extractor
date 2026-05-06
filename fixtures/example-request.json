@@ -1,0 +1,9 @@
+{
+  "note_id": "example-1",
+  "history": "No chest pain. Has cough but denies asthma. Father had diabetes.",
+  "objective": "",
+  "assessment": "Chest pain.",
+  "plan": "Screen for depression.",
+  "include_suppressed": true,
+  "refset_id": "fixture-symptoms"
+}

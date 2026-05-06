@@ -1,0 +1,16 @@
+/target/
+/.idea/
+/.vscode/
+*.log
+*.tmp
+
+# Licensed terminology downloads must stay outside source control.
+/data/trud/
+/data/rf2/
+/data/terminology/
+*.zip
+
+# Generated local validation artefacts.
+/out/
+/reports/
+/.toolchains/
