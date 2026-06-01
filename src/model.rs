@@ -73,6 +73,30 @@ impl From<ObservableExtractRequest> for ExtractRequest {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct ExaminationFindingsExtractRequest {
+    #[serde(default)]
+    pub note_id: Option<String>,
+    #[serde(default)]
+    pub objective: String,
+    #[serde(default)]
+    pub include_suppressed: bool,
+    #[serde(default)]
+    pub refset_id: Option<String>,
+}
+
+impl From<ExaminationFindingsExtractRequest> for ExtractRequest {
+    fn from(request: ExaminationFindingsExtractRequest) -> Self {
+        Self {
+            note_id: request.note_id,
+            objective: request.objective,
+            include_suppressed: request.include_suppressed,
+            refset_id: request.refset_id,
+            ..Self::default()
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ExtractResponse {
     pub note_id: Option<String>,

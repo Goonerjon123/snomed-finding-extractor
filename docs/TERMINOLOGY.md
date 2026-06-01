@@ -36,6 +36,19 @@ The file inspected on 6 May 2026 is an openEHR terminology value set binding man
 - active member count: `6362`
 - member shape: `code`, `display`, `fsn`, `active`, `system`, `descriptions`
 
+The supplied current examination findings value set path is:
+
+```text
+D:\SnoBehr\Refsets for Export\Examination Findings\gp-approved-exam-findings-20260201.openehr-valueset.json
+```
+
+The file inspected on 1 June 2026 is an openEHR terminology value set binding manifest with:
+
+- id: `examination-findings`
+- refset id: `932266131000001101`
+- terminology release date: `20260201`
+- member shape: `code`, `display`, `fsn`, `active`, `system`, `descriptions`
+
 ## Repository Rule
 
 Do not commit:

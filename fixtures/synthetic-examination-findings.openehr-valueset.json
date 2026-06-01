@@ -1,0 +1,74 @@
+{
+  "schema": "https://snoBehr.local/schemas/openehr-terminology-binding-manifest-1.0",
+  "kind": "openEHR terminology value set binding aid",
+  "id": "examination-findings",
+  "name": "Examination Findings",
+  "description": "Tiny test fixture only; not SNOMED content.",
+  "clinicalInformationModel": "openEHR archetypes/templates",
+  "terminology": {
+    "system": "http://snomed.info/sct",
+    "edition": "http://snomed.info/sct/999000031000000106",
+    "version": "http://snomed.info/sct/999000031000000106/version/20260201",
+    "releaseDate": "20260201"
+  },
+  "valueSet": {
+    "fhirCanonical": "https://example.invalid/fhir/ValueSet/examination-findings",
+    "rf2RefsetId": "932266131000001101",
+    "rf2ModuleId": "900000000000207008"
+  },
+  "members": [
+    {
+      "code": "3000000001",
+      "display": "Normal breath sounds",
+      "fsn": "Normal breath sounds (finding)",
+      "active": true,
+      "system": "http://snomed.info/sct",
+      "descriptions": [
+        {
+          "descriptionId": "300000000101",
+          "term": "Normal breath sounds",
+          "type": "preferred",
+          "acceptability": "preferred",
+          "active": true
+        },
+        {
+          "descriptionId": "300000000102",
+          "term": "Chest clear on auscultation",
+          "type": "synonym",
+          "acceptability": "acceptable",
+          "active": true
+        },
+        {
+          "descriptionId": "300000000103",
+          "term": "Chest clear",
+          "type": "synonym",
+          "acceptability": "acceptable",
+          "active": true
+        }
+      ]
+    },
+    {
+      "code": "3000000002",
+      "display": "Wheezing",
+      "fsn": "Wheezing (finding)",
+      "active": true,
+      "system": "http://snomed.info/sct",
+      "descriptions": [
+        {
+          "descriptionId": "300000000201",
+          "term": "Wheezing",
+          "type": "preferred",
+          "acceptability": "preferred",
+          "active": true
+        },
+        {
+          "descriptionId": "300000000202",
+          "term": "wheeze",
+          "type": "synonym",
+          "acceptability": "acceptable",
+          "active": true
+        }
+      ]
+    }
+  ]
+}

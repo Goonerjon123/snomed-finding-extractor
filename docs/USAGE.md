@@ -26,6 +26,16 @@ cargo run --bin snomed-extract -- build-openehr `
 
 The observations importer also adds a small versioned set of built-in Objective aliases when the matching observable concept is in the refset, including `BP`, `HR`, `RR`, `SpO2`, `sats`, `O2 sats`, `temp`, and `BMI`.
 
+Build the Objective-field examination findings artefact from the examination findings value set:
+
+```powershell
+cargo run --bin snomed-extract -- build-openehr `
+  --valueset "D:\SnoBehr\Refsets for Export\Examination Findings\gp-approved-exam-findings-20260201.openehr-valueset.json" `
+  --output "out\examination-findings-20260201.artefact.json"
+```
+
+The examination findings importer uses the terms and synonyms supplied in the examination findings value set. Local shorthand such as `Chest clear` should be added to the governed value set export or supplied through a reviewed alias file, not hard-coded in the engine.
+
 Production deployments should build this artefact during release packaging, record the source value set hash, and keep the generated artefact out of public source control unless SNOMED licensing has been explicitly approved.
 
 ## 2. Run The API Sidecar
@@ -34,11 +44,12 @@ Production deployments should build this artefact during release packaging, reco
 cargo run --features http --bin snomed-serve -- `
   --artefact "out\symptoms-20260201.artefact.json" `
   --observables-artefact "out\observations-20260201.artefact.json" `
+  --examination-findings-artefact "out\examination-findings-20260201.artefact.json" `
   --host 127.0.0.1 `
   --port 8060
 ```
 
-You can run only the observable endpoint by omitting `--artefact` and supplying `--observables-artefact`.
+You can run only one endpoint by omitting the other artefact options.
 
 Health check:
 
@@ -57,6 +68,13 @@ Observable entity extraction endpoint:
 
 ```http
 POST http://127.0.0.1:8060/v1/extract-observables
+Content-Type: application/json
+```
+
+Examination finding extraction endpoint:
+
+```http
+POST http://127.0.0.1:8060/v1/extract-examination-findings
 Content-Type: application/json
 ```
 
@@ -94,7 +112,20 @@ Fields:
 
 The observable endpoint deliberately accepts only the `objective` field. It returns SNOMED CT observable entity candidates from the observations artefact, not finding candidates from the symptoms artefact.
 
-## 5. Response Shape
+## 5. Examination Findings Request Shape
+
+```json
+{
+  "note_id": "optional-note-id",
+  "objective": "Chest clear on auscultation, no wheeze.",
+  "include_suppressed": true,
+  "refset_id": "932266131000001101"
+}
+```
+
+The examination findings endpoint deliberately accepts only the `objective` field. It returns SNOMED CT examination finding candidates from the examination findings artefact, not vital-sign observable candidates from the observations artefact.
+
+## 6. Response Shape
 
 ```json
 {
@@ -135,9 +166,9 @@ The observable endpoint deliberately accepts only the `objective` field. It retu
 }
 ```
 
-For `/v1/extract-observables`, every accepted or suppressed item has `"field": "objective"`.
+For `/v1/extract-observables` and `/v1/extract-examination-findings`, every accepted or suppressed item has `"field": "objective"`.
 
-## 6. Example Client Calls
+## 7. Example Client Calls
 
 ```powershell
 $body = @{
@@ -172,7 +203,23 @@ Invoke-RestMethod `
   -Body $body
 ```
 
-## 7. CLI Calls
+Examination findings from the Objective field:
+
+```powershell
+$body = @{
+  objective = "Chest clear on auscultation, no wheeze."
+  include_suppressed = $true
+  refset_id = "932266131000001101"
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+  -Uri "http://127.0.0.1:8060/v1/extract-examination-findings" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+## 8. CLI Calls
 
 ```powershell
 cargo run --bin snomed-extract -- extract-observables `
@@ -180,7 +227,13 @@ cargo run --bin snomed-extract -- extract-observables `
   --input "fixtures\example-observable-request.json"
 ```
 
-## 8. Integration Rules
+```powershell
+cargo run --bin snomed-extract -- extract-examination-findings `
+  --artefact "out\examination-findings-20260201.artefact.json" `
+  --input "fixtures\example-examination-findings-request.json"
+```
+
+## 9. Integration Rules
 
 - Treat `matches` as candidate concepts for clinician confirmation, not automatically confirmed record entries.
 - Use `suppressed` matches to show why terms were not coded, especially negated and planned findings.
@@ -188,6 +241,6 @@ cargo run --bin snomed-extract -- extract-observables `
 - Do not log raw note text in the calling service unless your EPR logging policy explicitly permits it.
 - Rebuild and revalidate the artefact whenever the value set, SNOMED release, synonym export, or ruleset changes.
 
-## 9. Browser Console
+## 10. Browser Console
 
-The server also serves `/` as a local manual test console. This is not the integration surface for the EPR; use `/v1/extract` and `/v1/extract-observables` for backend integration.
+The server also serves `/` as a local manual test console. This is not the integration surface for the EPR; use `/v1/extract`, `/v1/extract-observables`, and `/v1/extract-examination-findings` for backend integration.

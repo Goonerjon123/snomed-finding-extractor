@@ -1,8 +1,8 @@
 # SNOMED Finding Extractor
 
-Fast, deterministic, explainable SNOMED CT clinical finding and observable entity extraction for SOAP free text.
+Fast, deterministic, explainable SNOMED CT clinical finding, observable entity, and examination finding extraction for SOAP free text.
 
-This repository is intended to become a standalone component inside a larger EPR. It proposes candidate SNOMED CT finding and observable entity codes for clinician confirmation; it does not auto-write codes to the clinical record.
+This repository is intended to become a standalone component inside a larger EPR. It proposes candidate SNOMED CT finding, observable entity, and examination finding codes for clinician confirmation; it does not auto-write codes to the clinical record.
 
 ## Current Status
 
@@ -13,6 +13,7 @@ This is a v0.1 implementation scaffold with:
 - Optional local HTTP API sidecar.
 - openEHR value set importer for the supplied symptoms value set manifest.
 - Objective-only observable entity extraction from a separate observations value set manifest.
+- Objective-only examination finding extraction from a separate examination findings value set manifest.
 - RF2 snapshot/refset importer for future full SNOMED synonym enrichment.
 - Deterministic matcher and assertion rules.
 - Synthetic corpus generation and evaluation harness.
@@ -46,6 +47,14 @@ For Objective-field observable entities:
 cargo run --bin snomed-extract -- build-openehr `
   --valueset "D:\SnoBehr\Refsets for Export\Observables\observations-20260201.openehr-valueset.json" `
   --output "out\observations-20260201.artefact.json"
+```
+
+For Objective-field examination findings:
+
+```powershell
+cargo run --bin snomed-extract -- build-openehr `
+  --valueset "D:\SnoBehr\Refsets for Export\Examination Findings\gp-approved-exam-findings-20260201.openehr-valueset.json" `
+  --output "out\examination-findings-20260201.artefact.json"
 ```
 
 From RF2 snapshot files:
@@ -107,12 +116,33 @@ Request shape:
 }
 ```
 
+## Extract Examination Findings From Objective JSON
+
+```powershell
+cargo run --bin snomed-extract -- extract-examination-findings `
+  --artefact "out\examination-findings-20260201.artefact.json" `
+  --input "fixtures\example-examination-findings-request.json" `
+  --include-suppressed
+```
+
+Request shape:
+
+```json
+{
+  "note_id": "example-examination-1",
+  "objective": "Chest clear on auscultation, no wheeze.",
+  "include_suppressed": true,
+  "refset_id": "932266131000001101"
+}
+```
+
 ## HTTP Sidecar
 
 ```powershell
 cargo run --features http --bin snomed-serve -- `
   --artefact "out\symptoms-20260201.artefact.json" `
   --observables-artefact "out\observations-20260201.artefact.json" `
+  --examination-findings-artefact "out\examination-findings-20260201.artefact.json" `
   --host 127.0.0.1 `
   --port 8060
 ```
@@ -121,6 +151,7 @@ Then use:
 
 - `POST /v1/extract` for SOAP finding candidates.
 - `POST /v1/extract-observables` for Objective-only observable entity candidates.
+- `POST /v1/extract-examination-findings` for Objective-only examination finding candidates.
 
 See [API usage](docs/USAGE.md) for integration notes and example API calls. The browser page served at `/` is only a local manual test console.
 

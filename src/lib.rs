@@ -18,10 +18,10 @@ pub mod terminology;
 pub use crate::error::{ExtractorError, Result};
 pub use crate::extractor::Extractor;
 pub use crate::model::{
-    AssertionStatus, ExtractRequest, ExtractResponse, FindingMatch, ObservableExtractRequest,
-    SoapField, SuppressedMatch,
+    AssertionStatus, ExaminationFindingsExtractRequest, ExtractRequest, ExtractResponse,
+    FindingMatch, ObservableExtractRequest, SoapField, SuppressedMatch,
 };
 pub use crate::terminology::{AliasSet, TerminologyArtefact};
 
 pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RULESET_VERSION: &str = "ruleset-2026-05-06-v2";
+pub const RULESET_VERSION: &str = "ruleset-2026-06-01-v3";

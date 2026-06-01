@@ -11,5 +11,6 @@
 | H-007 | Clinician assumes suggestion is confirmed code | Poor UI distinction | Incorrect record entry | High | EPR UI requirement, usability review, confirmation step | Open |
 | H-008 | Low recall misses relevant findings | Conservative matching | Manual coding burden or missed opportunity | Medium | Report false negatives, clinician can manually code | Open |
 | H-009 | Objective abbreviation maps to wrong observable entity | Ambiguous vital-sign shorthand | Incorrect observation code suggestion | Medium | Built-in alias whitelist, refset-bounded matching, clinician confirmation, alias regression tests | Open |
+| H-010 | Examination phrase maps to wrong finding | Local shorthand such as "chest clear" is interpreted too broadly | Incorrect examination finding suggestion | Medium | Govern shorthand in value set or reviewed alias file, refset-bounded matching, suppression rules, clinician confirmation | Open |
 
 Severity and residual risk must be reviewed by the Clinical Safety Officer before clinical deployment.

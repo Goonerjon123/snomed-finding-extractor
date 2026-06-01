@@ -2,7 +2,7 @@
 
 ## Intended Use
 
-The engine supports clinicians by identifying candidate SNOMED CT finding codes mentioned in SOAP free text and candidate SNOMED CT observable entity codes mentioned in the Objective field for clinician review and confirmation.
+The engine supports clinicians by identifying candidate SNOMED CT finding codes mentioned in SOAP free text, candidate SNOMED CT observable entity codes mentioned in the Objective field, and candidate SNOMED CT examination finding codes mentioned in the Objective field for clinician review and confirmation.
 
 ## Finding Request
 
@@ -37,6 +37,21 @@ All SOAP text fields default to an empty string. `refset_id`, when supplied, mus
 
 The observable endpoint only accepts Objective text. It should be backed by an artefact built from the observations value set, for example refset `785380551000001102`.
 
+## Examination Finding Request
+
+`POST /v1/extract-examination-findings`
+
+```json
+{
+  "note_id": "optional-local-id",
+  "objective": "Chest clear on auscultation, no wheeze.",
+  "include_suppressed": true,
+  "refset_id": "optional-loaded-examination-findings-refset-id"
+}
+```
+
+The examination findings endpoint only accepts Objective text. It should be backed by an artefact built from the examination findings value set, for example refset `932266131000001101`.
+
 ## Response
 
 ```json
@@ -65,7 +80,7 @@ The observable endpoint only accepts Objective text. It should be backed by an a
 }
 ```
 
-The response shape is the same for both endpoints. For `/v1/extract-observables`, every returned `field` is `objective`, and the `concept_id` values come from the loaded observable entity artefact.
+The response shape is the same for all endpoints. For `/v1/extract-observables` and `/v1/extract-examination-findings`, every returned `field` is `objective`, and the `concept_id` values come from the endpoint's loaded artefact.
 
 ## Suppressed Assertions
 

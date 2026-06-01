@@ -2,8 +2,8 @@ use crate::context::classify_assertion;
 use crate::error::{ExtractorError, Result};
 use crate::matcher::{RawMatch, TerminologyMatcher};
 use crate::model::{
-    ExtractRequest, ExtractResponse, FindingMatch, ObservableExtractRequest, SoapField,
-    SuppressedMatch,
+    ExaminationFindingsExtractRequest, ExtractRequest, ExtractResponse, FindingMatch,
+    ObservableExtractRequest, SoapField, SuppressedMatch,
 };
 use crate::terminology::TerminologyArtefact;
 use crate::{ENGINE_VERSION, RULESET_VERSION};
@@ -34,6 +34,13 @@ impl Extractor {
         request: ObservableExtractRequest,
     ) -> Result<ExtractResponse> {
         self.extract_with_kind(request.into(), ExtractionKind::Observable)
+    }
+
+    pub fn extract_examination_findings(
+        &self,
+        request: ExaminationFindingsExtractRequest,
+    ) -> Result<ExtractResponse> {
+        self.extract_with_kind(request.into(), ExtractionKind::ExaminationFinding)
     }
 
     fn extract_with_kind(
@@ -98,12 +105,16 @@ impl Extractor {
 enum ExtractionKind {
     Finding,
     Observable,
+    ExaminationFinding,
 }
 
 fn accepted_rule_ids(extraction_kind: ExtractionKind) -> Vec<String> {
     match extraction_kind {
         ExtractionKind::Finding => vec!["ASSERT_AFFIRMED_PATIENT_FINDING".to_string()],
         ExtractionKind::Observable => vec!["ASSERT_AFFIRMED_PATIENT_OBSERVABLE".to_string()],
+        ExtractionKind::ExaminationFinding => {
+            vec!["ASSERT_AFFIRMED_PATIENT_EXAMINATION_FINDING".to_string()]
+        }
     }
 }
 
@@ -115,6 +126,10 @@ fn accepted_explanation(extraction_kind: ExtractionKind, field: SoapField) -> St
         ),
         ExtractionKind::Observable => format!(
             "Accepted as an affirmed patient observable entity in the {} field; no suppression rule fired.",
+            field.as_str()
+        ),
+        ExtractionKind::ExaminationFinding => format!(
+            "Accepted as an affirmed patient examination finding in the {} field; no suppression rule fired.",
             field.as_str()
         ),
     }
