@@ -99,7 +99,10 @@ The importer also derives conservative variants from those official descriptions
 - `PREFIX - expansion` descriptions can contribute `PREFIX` when the acronym is safe to use.
 - Non-initialism prefixes such as `URTI` can be used when the expansion is a base phrase, but are not derived from expansions that add unencoded specificity such as `viral`.
 - Simple diabetes mellitus descriptions can contribute GP shorthand such as `Type 2 diabetes` while avoiding broad complication phrases.
+- Morphology descriptions can contribute constrained phrase variants such as `swollen X` from `Swelling of X`.
 - Examination descriptions ending `on auscultation` can contribute the shorter base phrase, for example `Chest clear` from `Chest clear on auscultation`.
+- Body-site sign phrases can match with a small number of intervening modifiers, for example `Exudate on tonsils` matching `Exudate on swollen left tonsil`.
+- Simple two-word rate observables can contribute numeric-only labels such as `Pulse` and `P` from `Pulse rate`; these labels are accepted only when followed by a numeric value.
 
 `build-rf2` uses RF2 concept, description, language, and refset snapshot files. It applies the same description-derived variant rules and should become the production build path because it can include active descriptions, synonyms, and UK language acceptability.
 

@@ -48,6 +48,8 @@ pub struct TermVariant {
     pub description_id: Option<String>,
     #[serde(default)]
     pub allow_ambiguous: bool,
+    #[serde(default)]
+    pub requires_numeric_value: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -122,7 +124,10 @@ impl TerminologyArtefact {
         let mut count = 0_usize;
         for concept in self.concepts.iter().filter(|concept| concept.active) {
             for variant in concept.runtime_variants() {
-                if is_blocked_common_term(&normalize_term(&variant.text), variant.allow_ambiguous) {
+                if is_blocked_common_term(
+                    &normalize_term(&variant.text),
+                    variant.allow_ambiguous || variant.requires_numeric_value,
+                ) {
                     continue;
                 }
                 count += 1;
@@ -179,6 +184,7 @@ impl TerminologyArtefact {
                     source: format!("clinical_alias:{}", alias.source),
                     description_id: None,
                     allow_ambiguous: alias.allow_ambiguous,
+                    requires_numeric_value: false,
                 });
             }
         }
@@ -197,13 +203,19 @@ impl ConceptEntry {
                 source: "preferred_term".to_string(),
                 description_id: None,
                 allow_ambiguous: false,
+                requires_numeric_value: false,
             });
         }
 
         let mut seen = HashSet::new();
         variants
             .into_iter()
-            .filter(|variant| seen.insert(normalize_term(&variant.text)))
+            .filter(|variant| {
+                seen.insert((
+                    normalize_term(&variant.text),
+                    variant.requires_numeric_value,
+                ))
+            })
             .collect()
     }
 }

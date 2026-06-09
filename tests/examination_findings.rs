@@ -72,3 +72,40 @@ fn examination_findings_request_ignores_non_objective_soap_fields() {
     assert!(request.assessment.is_empty());
     assert!(request.plan.is_empty());
 }
+
+#[test]
+fn extracts_body_site_signs_with_intervening_modifiers() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("fixtures")
+        .join("synthetic-examination-findings.openehr-valueset.json");
+    let artefact = build_from_openehr_valueset(path).unwrap();
+    let extractor = Extractor::new(artefact).unwrap();
+
+    let response = extractor
+        .extract_examination_findings(ExaminationFindingsExtractRequest {
+            note_id: Some("exam-3".to_string()),
+            objective: "Exudate on swollen left tonsil.".to_string(),
+            include_suppressed: true,
+            refset_id: Some("932266131000001101".to_string()),
+        })
+        .unwrap();
+
+    let positives = response
+        .matches
+        .iter()
+        .map(|item| {
+            (
+                item.concept_id.as_str(),
+                item.field,
+                item.matched_text.as_str(),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert!(positives.contains(&(
+        "3000000003",
+        SoapField::Objective,
+        "Exudate on swollen left tonsil"
+    )));
+    assert!(positives.contains(&("3000000004", SoapField::Objective, "swollen left tonsil")));
+}

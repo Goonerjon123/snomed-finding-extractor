@@ -6,7 +6,7 @@ This project is intended to run as a lightweight local API sidecar or embedded R
 
 The API needs a runtime artefact built from the controlled value set export. The current export includes active SNOMED descriptions and synonyms, so a separate alias file is not required for breathlessness terms such as `SOB`, `SOBOE`, `short of breath`, and `breathlessness`.
 
-At build time, the importer also derives a small set of deterministic variants from official descriptions. For example, `PREFIX - expansion` descriptions can contribute the prefix acronym, simple `diabetes mellitus type` descriptions can contribute `Type 2 diabetes`, and examination descriptions ending `on auscultation` can contribute the shorter base phrase. These variants remain refset-bounded and are blocked if the shorthand becomes ambiguous or loses clinically meaningful specificity.
+At build time, the importer also derives a small set of deterministic variants from official descriptions. For example, `PREFIX - expansion` descriptions can contribute the prefix acronym, simple `diabetes mellitus type` descriptions can contribute `Type 2 diabetes`, `Swelling of X` can contribute `swollen X`, and examination descriptions ending `on auscultation` can contribute the shorter base phrase. These variants remain refset-bounded and are blocked if the shorthand becomes ambiguous or loses clinically meaningful specificity.
 
 ```powershell
 $env:RUSTUP_HOME="D:\SNOMED CT EXTRACTOR\.toolchains\rustup"
@@ -26,7 +26,7 @@ cargo run --bin snomed-extract -- build-openehr `
   --output "out\observations-20260201.artefact.json"
 ```
 
-The observations importer also adds a small versioned set of built-in Objective aliases when the matching observable concept is in the refset, including `BP`, `HR`, `RR`, `SpO2`, `sats`, `O2 sats`, `temp`, and `BMI`.
+The observations importer also adds a small versioned set of built-in Objective aliases when the matching observable concept is in the refset, including `BP`, `HR`, `RR`, `SpO2`, `sats`, `O2 sats`, `temp`, and `BMI`. Simple two-word rate observables also create numeric-only labels, so `Pulse rate` can match `Pulse 96` or `P: 96`; those short labels are ignored unless followed by a numeric value.
 
 Build the Objective-field examination findings artefact from the examination findings value set:
 
@@ -36,7 +36,7 @@ cargo run --bin snomed-extract -- build-openehr `
   --output "out\examination-findings-20260201.artefact.json"
 ```
 
-The examination findings importer uses the terms and synonyms supplied in the examination findings value set. If the value set contains a description such as `Chest clear on auscultation`, the importer can derive the shorter `Chest clear` phrase from that official description. Local shorthand with no source description should still be added to the governed value set export or supplied through a reviewed alias file, not hard-coded in the engine.
+The examination findings importer uses the terms and synonyms supplied in the examination findings value set. If the value set contains a description such as `Chest clear on auscultation`, the importer can derive the shorter `Chest clear` phrase from that official description. Body-site sign phrases can also tolerate a small number of intervening modifiers, so terminology such as `Exudate on tonsils` can match text like `Exudate on swollen left tonsil`. Local shorthand with no source description should still be added to the governed value set export or supplied through a reviewed alias file, not hard-coded in the engine.
 
 Build the Assessment-field diagnosis/disorder artefact from the Disorders value set:
 

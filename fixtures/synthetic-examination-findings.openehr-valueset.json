@@ -62,6 +62,38 @@
           "active": true
         }
       ]
+    },
+    {
+      "code": "3000000003",
+      "display": "Exudate on tonsils",
+      "fsn": "Exudate on tonsils (finding)",
+      "active": true,
+      "system": "http://snomed.info/sct",
+      "descriptions": [
+        {
+          "descriptionId": "300000000301",
+          "term": "Exudate on tonsils",
+          "type": "preferred",
+          "acceptability": "preferred",
+          "active": true
+        }
+      ]
+    },
+    {
+      "code": "3000000004",
+      "display": "Swelling of left tonsil",
+      "fsn": "Swelling of left tonsil (finding)",
+      "active": true,
+      "system": "http://snomed.info/sct",
+      "descriptions": [
+        {
+          "descriptionId": "300000000401",
+          "term": "Swelling of left tonsil",
+          "type": "preferred",
+          "acceptability": "preferred",
+          "active": true
+        }
+      ]
     }
   ]
 }

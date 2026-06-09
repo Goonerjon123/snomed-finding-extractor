@@ -117,6 +117,29 @@
           "active": true
         }
       ]
+    },
+    {
+      "code": "2000000006",
+      "display": "Pulse rate",
+      "fsn": "Heart rate measured at systemic artery (observable entity)",
+      "active": true,
+      "system": "http://snomed.info/sct",
+      "descriptions": [
+        {
+          "descriptionId": "200000000601",
+          "term": "Pulse rate",
+          "type": "preferred",
+          "acceptability": "preferred",
+          "active": true
+        },
+        {
+          "descriptionId": "200000000602",
+          "term": "PR - Pulse rate",
+          "type": "synonym",
+          "acceptability": "acceptable",
+          "active": true
+        }
+      ]
     }
   ]
 }

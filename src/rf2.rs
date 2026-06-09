@@ -76,6 +76,11 @@ pub fn build_from_openehr_valueset(path: impl AsRef<Path>) -> Result<Terminology
         }
         if observable_entity {
             push_observable_entity_aliases(&mut variants, member.display.as_str());
+            push_observable_numeric_label_variants(
+                &mut variants,
+                member.display.as_str(),
+                &descriptions,
+            );
         }
 
         concepts.push(ConceptEntry {
@@ -387,13 +392,40 @@ fn push_variant(
     description_id: Option<String>,
     allow_ambiguous: bool,
 ) {
+    push_variant_with_numeric_requirement(
+        variants,
+        text,
+        source,
+        description_id,
+        allow_ambiguous,
+        false,
+    );
+}
+
+fn push_numeric_value_variant(
+    variants: &mut Vec<TermVariant>,
+    text: &str,
+    source: &str,
+    description_id: Option<String>,
+) {
+    push_variant_with_numeric_requirement(variants, text, source, description_id, true, true);
+}
+
+fn push_variant_with_numeric_requirement(
+    variants: &mut Vec<TermVariant>,
+    text: &str,
+    source: &str,
+    description_id: Option<String>,
+    allow_ambiguous: bool,
+    requires_numeric_value: bool,
+) {
     if normalize_term(text).is_empty() {
         return;
     }
-    if variants
-        .iter()
-        .any(|variant| normalize_term(&variant.text) == normalize_term(text))
-    {
+    if variants.iter().any(|variant| {
+        normalize_term(&variant.text) == normalize_term(text)
+            && variant.requires_numeric_value == requires_numeric_value
+    }) {
         return;
     }
 
@@ -402,6 +434,7 @@ fn push_variant(
         source: source.to_string(),
         description_id,
         allow_ambiguous,
+        requires_numeric_value,
     });
 }
 
@@ -467,6 +500,14 @@ fn derive_description_variants(term: &str) -> Vec<DerivedVariant> {
         });
     }
 
+    for morphology_variant in morphology_variants(term) {
+        variants.push(DerivedVariant {
+            term: morphology_variant,
+            source: "openehr-description-morphology-variant",
+            allow_ambiguous: false,
+        });
+    }
+
     for context_trimmed in context_suffix_trim_variants(term) {
         variants.push(DerivedVariant {
             term: context_trimmed,
@@ -482,7 +523,7 @@ fn push_observable_entity_aliases(variants: &mut Vec<TermVariant>, preferred_ter
     let aliases: &[(&str, bool)] = match normalize_term(preferred_term).as_str() {
         "blood pressure" => &[("BP", true)],
         "heart rate" => &[("HR", true)],
-        "pulse rate" => &[("pulse", false), ("PR", true)],
+        "pulse rate" => &[("PR", true)],
         "respiratory rate" => &[("RR", true), ("BR", true), ("resp rate", false)],
         "peripheral oxygen saturation" => &[
             ("SpO2", true),
@@ -507,6 +548,50 @@ fn push_observable_entity_aliases(variants: &mut Vec<TermVariant>, preferred_ter
             *allow_ambiguous,
         );
     }
+}
+
+fn push_observable_numeric_label_variants(
+    variants: &mut Vec<TermVariant>,
+    preferred_term: &str,
+    descriptions: &[DescriptionEntry],
+) {
+    for label in observable_numeric_labels(preferred_term) {
+        push_numeric_value_variant(variants, &label, "openehr-observable-numeric-label", None);
+    }
+
+    for description in descriptions {
+        for label in observable_numeric_labels(&description.term) {
+            push_numeric_value_variant(
+                variants,
+                &label,
+                "openehr-observable-numeric-label",
+                Some(description.description_id.clone()),
+            );
+        }
+    }
+}
+
+fn observable_numeric_labels(term: &str) -> Vec<String> {
+    let normalized = normalize_term(term);
+    let words = normalized.split(' ').collect::<Vec<_>>();
+    if words.len() != 2 || words[1] != "rate" || words[0].chars().count() < 4 {
+        return Vec::new();
+    }
+
+    let mut labels = vec![capitalize_label(words[0])];
+    if let Some(initial) = words[0].chars().next() {
+        labels.push(initial.to_ascii_uppercase().to_string());
+    }
+    labels
+}
+
+fn capitalize_label(label: &str) -> String {
+    let mut chars = label.chars();
+    let Some(first) = chars.next() else {
+        return String::new();
+    };
+
+    format!("{}{}", first.to_ascii_uppercase(), chars.as_str())
 }
 
 fn split_acronym_expansion(term: &str) -> Option<(&str, &str)> {
@@ -610,6 +695,21 @@ fn diabetes_type_label(type_code: &str) -> Option<&'static str> {
         "ii" => Some("II"),
         _ => None,
     }
+}
+
+fn morphology_variants(term: &str) -> Vec<String> {
+    let normalized = normalize_term(term);
+    if let Some(body_site) = normalized.strip_prefix("swelling of ") {
+        return vec![format!("swollen {}", body_site.trim())];
+    }
+    if let Some(body_site) = normalized.strip_suffix(" swelling") {
+        let body_site = body_site.trim();
+        if !body_site.is_empty() {
+            return vec![format!("swollen {body_site}")];
+        }
+    }
+
+    Vec::new()
 }
 
 fn context_suffix_trim_variants(term: &str) -> Vec<String> {
@@ -761,5 +861,29 @@ mod tests {
         assert!(derived.iter().any(|variant| variant.term == "chest clear"
             && variant.source == "openehr-description-context-trim"
             && !variant.allow_ambiguous));
+    }
+
+    #[test]
+    fn derives_morphology_variants_from_body_site_signs() {
+        let derived = derive_description_variants("Swelling of left tonsil");
+
+        assert!(derived
+            .iter()
+            .any(|variant| variant.term == "swollen left tonsil"
+                && variant.source == "openehr-description-morphology-variant"
+                && !variant.allow_ambiguous));
+    }
+
+    #[test]
+    fn derives_numeric_initial_labels_from_simple_rate_observables() {
+        assert_eq!(
+            observable_numeric_labels("Pulse rate"),
+            vec!["Pulse".to_string(), "P".to_string()]
+        );
+        assert_eq!(
+            observable_numeric_labels("Respiratory rate"),
+            vec!["Respiratory".to_string(), "R".to_string()]
+        );
+        assert!(observable_numeric_labels("Blood pressure").is_empty());
     }
 }

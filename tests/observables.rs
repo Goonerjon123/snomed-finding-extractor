@@ -73,3 +73,44 @@ fn observable_request_ignores_non_objective_soap_fields() {
     assert!(request.assessment.is_empty());
     assert!(request.plan.is_empty());
 }
+
+#[test]
+fn extracts_numeric_observable_labels_only_before_values() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("fixtures")
+        .join("synthetic-observables.openehr-valueset.json");
+    let artefact = build_from_openehr_valueset(path).unwrap();
+    let extractor = Extractor::new(artefact).unwrap();
+
+    let response = extractor
+        .extract_observables(ObservableExtractRequest {
+            note_id: Some("obs-3".to_string()),
+            objective: "P: 96. Pulse 96. PR: 96. P waves normal.".to_string(),
+            include_suppressed: true,
+            refset_id: Some("785380551000001102".to_string()),
+        })
+        .unwrap();
+
+    let positives = response
+        .matches
+        .iter()
+        .map(|item| {
+            (
+                item.concept_id.as_str(),
+                item.field,
+                item.matched_text.as_str(),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert!(positives.contains(&("2000000006", SoapField::Objective, "P")));
+    assert!(positives.contains(&("2000000006", SoapField::Objective, "Pulse")));
+    assert!(positives.contains(&("2000000006", SoapField::Objective, "PR")));
+    assert_eq!(
+        positives
+            .iter()
+            .filter(|item| **item == ("2000000006", SoapField::Objective, "P"))
+            .count(),
+        1
+    );
+}

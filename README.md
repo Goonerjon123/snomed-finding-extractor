@@ -16,7 +16,7 @@ This is a v0.1 implementation scaffold with:
 - Objective-only examination finding extraction from a separate examination findings value set manifest.
 - Assessment-only diagnosis/disorder extraction from a separate disorders value set manifest.
 - RF2 snapshot/refset importer for future full SNOMED synonym enrichment.
-- Terminology-derived variants for safe shorthand, including official acronym prefixes, simple diabetes mellitus phrases, and examination phrases such as `X on auscultation`.
+- Terminology-derived variants for safe shorthand, including official acronym prefixes, simple diabetes mellitus phrases, morphology variants, flexible body-site sign phrases, examination phrases such as `X on auscultation`, and numeric-only observable labels.
 - Deterministic matcher and assertion rules.
 - Synthetic corpus generation and evaluation harness.
 - Safety, validation, terminology, and regulatory documentation templates.
