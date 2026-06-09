@@ -6,6 +6,8 @@ This project is intended to run as a lightweight local API sidecar or embedded R
 
 The API needs a runtime artefact built from the controlled value set export. The current export includes active SNOMED descriptions and synonyms, so a separate alias file is not required for breathlessness terms such as `SOB`, `SOBOE`, `short of breath`, and `breathlessness`.
 
+At build time, the importer also derives a small set of deterministic variants from official descriptions. For example, `PREFIX - expansion` descriptions can contribute the prefix acronym, simple `diabetes mellitus type` descriptions can contribute `Type 2 diabetes`, and examination descriptions ending `on auscultation` can contribute the shorter base phrase. These variants remain refset-bounded and are blocked if the shorthand becomes ambiguous or loses clinically meaningful specificity.
+
 ```powershell
 $env:RUSTUP_HOME="D:\SNOMED CT EXTRACTOR\.toolchains\rustup"
 $env:CARGO_HOME="D:\SNOMED CT EXTRACTOR\.toolchains\cargo"
@@ -34,7 +36,7 @@ cargo run --bin snomed-extract -- build-openehr `
   --output "out\examination-findings-20260201.artefact.json"
 ```
 
-The examination findings importer uses the terms and synonyms supplied in the examination findings value set. Local shorthand such as `Chest clear` should be added to the governed value set export or supplied through a reviewed alias file, not hard-coded in the engine.
+The examination findings importer uses the terms and synonyms supplied in the examination findings value set. If the value set contains a description such as `Chest clear on auscultation`, the importer can derive the shorter `Chest clear` phrase from that official description. Local shorthand with no source description should still be added to the governed value set export or supplied through a reviewed alias file, not hard-coded in the engine.
 
 Build the Assessment-field diagnosis/disorder artefact from the Disorders value set:
 

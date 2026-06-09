@@ -169,16 +169,29 @@ pub fn build_from_rf2_snapshot<P: AsRef<Path>>(
         }
 
         let preferred_term = choose_preferred_term(&descriptions);
-        let variants = descriptions
+        let mut variants = Vec::new();
+        for description in descriptions
             .iter()
             .filter(|description| description.description_type != "fully_specified_name")
-            .map(|description| TermVariant {
-                text: description.term.clone(),
-                source: format!("rf2-{}", description.description_type),
-                description_id: Some(description.description_id.clone()),
-                allow_ambiguous: false,
-            })
-            .collect();
+        {
+            push_variant(
+                &mut variants,
+                description.term.as_str(),
+                &format!("rf2-{}", description.description_type),
+                Some(description.description_id.clone()),
+                false,
+            );
+
+            for derived in derive_description_variants(&description.term) {
+                push_variant(
+                    &mut variants,
+                    derived.term.as_str(),
+                    derived.source,
+                    Some(description.description_id.clone()),
+                    derived.allow_ambiguous,
+                );
+            }
+        }
 
         concepts.push(ConceptEntry {
             concept_id: concept_id.clone(),
@@ -415,10 +428,24 @@ fn derive_description_variants(term: &str) -> Vec<DerivedVariant> {
             });
         }
 
+        for diabetes_variant in simple_diabetes_mellitus_variants(expansion) {
+            variants.push(DerivedVariant {
+                term: diabetes_variant,
+                source: "openehr-description-diabetes-mellitus-variant",
+                allow_ambiguous: false,
+            });
+        }
+
         if acronym_matches_expansion(prefix, expansion) {
             variants.push(DerivedVariant {
                 term: prefix.to_string(),
                 source: "openehr-description-acronym",
+                allow_ambiguous: true,
+            });
+        } else if is_safe_non_initialism_acronym_prefix(prefix, expansion) {
+            variants.push(DerivedVariant {
+                term: prefix.to_string(),
+                source: "openehr-description-acronym-prefix",
                 allow_ambiguous: true,
             });
         }
@@ -428,6 +455,22 @@ fn derive_description_variants(term: &str) -> Vec<DerivedVariant> {
         variants.push(DerivedVariant {
             term: short_of_breath,
             source: "openehr-description-phrase-variant",
+            allow_ambiguous: false,
+        });
+    }
+
+    for diabetes_variant in simple_diabetes_mellitus_variants(term) {
+        variants.push(DerivedVariant {
+            term: diabetes_variant,
+            source: "openehr-description-diabetes-mellitus-variant",
+            allow_ambiguous: false,
+        });
+    }
+
+    for context_trimmed in context_suffix_trim_variants(term) {
+        variants.push(DerivedVariant {
+            term: context_trimmed,
+            source: "openehr-description-context-trim",
             allow_ambiguous: false,
         });
     }
@@ -493,6 +536,103 @@ fn acronym_matches_expansion(prefix: &str, expansion: &str) -> bool {
         .filter_map(|word| word.chars().next())
         .collect::<String>();
     acronym == initials
+}
+
+fn is_safe_non_initialism_acronym_prefix(prefix: &str, expansion: &str) -> bool {
+    !expansion_starts_with_unencoded_specificity(prefix, expansion)
+}
+
+fn expansion_starts_with_unencoded_specificity(prefix: &str, expansion: &str) -> bool {
+    let normalized_prefix = normalize_term(prefix);
+    let normalized_expansion = normalize_term(expansion);
+    let Some(first_word) = normalized_expansion.split(' ').next() else {
+        return false;
+    };
+
+    let specificity_words = [
+        "acute",
+        "bacterial",
+        "bilateral",
+        "chronic",
+        "left",
+        "mild",
+        "moderate",
+        "recurrent",
+        "right",
+        "severe",
+        "viral",
+    ];
+    if !specificity_words.contains(&first_word) {
+        return false;
+    }
+
+    let Some(first_letter) = first_word.chars().next() else {
+        return false;
+    };
+    !normalized_prefix.starts_with(first_letter)
+}
+
+fn simple_diabetes_mellitus_variants(term: &str) -> Vec<String> {
+    let normalized = normalize_term(term);
+    let Some(type_suffix) = normalized.strip_prefix("type ") else {
+        return diabetes_mellitus_type_suffix_variants(&normalized);
+    };
+
+    let Some(type_code) = type_suffix.strip_suffix(" diabetes mellitus") else {
+        return Vec::new();
+    };
+    let Some(type_label) = diabetes_type_label(type_code) else {
+        return Vec::new();
+    };
+
+    vec![format!("Type {type_label} diabetes")]
+}
+
+fn diabetes_mellitus_type_suffix_variants(normalized: &str) -> Vec<String> {
+    let Some(type_code) = normalized.strip_prefix("diabetes mellitus type ") else {
+        return Vec::new();
+    };
+    let Some(type_label) = diabetes_type_label(type_code) else {
+        return Vec::new();
+    };
+
+    vec![
+        format!("Type {type_label} diabetes"),
+        format!("Diabetes type {type_label}"),
+    ]
+}
+
+fn diabetes_type_label(type_code: &str) -> Option<&'static str> {
+    match type_code {
+        "1" => Some("1"),
+        "2" => Some("2"),
+        "i" => Some("I"),
+        "ii" => Some("II"),
+        _ => None,
+    }
+}
+
+fn context_suffix_trim_variants(term: &str) -> Vec<String> {
+    let normalized = normalize_term(term);
+    let Some(base) = normalized.strip_suffix(" on auscultation") else {
+        return Vec::new();
+    };
+    let base = base.trim();
+    if !is_safe_context_trimmed_phrase(base) {
+        return Vec::new();
+    }
+
+    vec![base.to_string()]
+}
+
+fn is_safe_context_trimmed_phrase(normalized: &str) -> bool {
+    let word_count = normalized
+        .split(' ')
+        .filter(|word| !word.is_empty())
+        .count();
+    let alnum_count = normalized.chars().filter(|ch| ch.is_alphanumeric()).count();
+
+    word_count >= 2 && alnum_count >= 6
 }
 
 fn shortness_of_breath_variant(term: &str) -> Option<String> {
@@ -580,5 +720,46 @@ mod tests {
         assert!(derived
             .iter()
             .any(|variant| variant.term == "short of breath on exertion"));
+    }
+
+    #[test]
+    fn derives_non_initialism_acronym_prefixes_from_official_descriptions() {
+        let derived = derive_description_variants("T2DM - diabetes mellitus type 2");
+
+        assert!(derived.iter().any(|variant| variant.term == "T2DM"
+            && variant.source == "openehr-description-acronym-prefix"
+            && variant.allow_ambiguous));
+        assert!(derived
+            .iter()
+            .any(|variant| variant.term == "Type 2 diabetes"
+                && variant.source == "openehr-description-diabetes-mellitus-variant"));
+    }
+
+    #[test]
+    fn derives_clinical_acronym_prefixes_even_when_word_order_differs() {
+        let derived =
+            derive_description_variants("URTI - Infection of the upper respiratory tract");
+
+        assert!(derived.iter().any(|variant| variant.term == "URTI"
+            && variant.source == "openehr-description-acronym-prefix"
+            && variant.allow_ambiguous));
+    }
+
+    #[test]
+    fn does_not_strip_unencoded_specificity_from_acronym_expansions() {
+        let derived = derive_description_variants("URTI - Viral upper respiratory tract infection");
+
+        assert!(!derived
+            .iter()
+            .any(|variant| variant.term == "URTI" && variant.allow_ambiguous));
+    }
+
+    #[test]
+    fn derives_safe_context_trimmed_examination_phrases() {
+        let derived = derive_description_variants("Chest clear on auscultation");
+
+        assert!(derived.iter().any(|variant| variant.term == "chest clear"
+            && variant.source == "openehr-description-context-trim"
+            && !variant.allow_ambiguous));
     }
 }

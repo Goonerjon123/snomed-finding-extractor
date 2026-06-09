@@ -5,7 +5,7 @@ use snomed_finding_extractor::{
 use std::path::PathBuf;
 
 #[test]
-fn extracts_examination_findings_when_shorthand_is_in_value_set() {
+fn extracts_examination_findings_from_official_context_trimmed_variant() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("fixtures")
         .join("synthetic-examination-findings.openehr-valueset.json");

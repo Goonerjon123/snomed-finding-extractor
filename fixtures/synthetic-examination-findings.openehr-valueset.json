@@ -37,13 +37,6 @@
           "type": "synonym",
           "acceptability": "acceptable",
           "active": true
-        },
-        {
-          "descriptionId": "300000000103",
-          "term": "Chest clear",
-          "type": "synonym",
-          "acceptability": "acceptable",
-          "active": true
         }
       ]
     },

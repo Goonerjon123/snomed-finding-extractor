@@ -94,7 +94,14 @@ The generated artefact contains:
 
 `build-openehr` uses the supplied manifest directly. When the manifest includes active member descriptions, the importer uses preferred terms, synonyms, description IDs, and acceptability to build runtime variants.
 
-`build-rf2` uses RF2 concept, description, language, and refset snapshot files. It should become the production build path because it can include active descriptions, synonyms, and UK language acceptability.
+The importer also derives conservative variants from those official descriptions:
+
+- `PREFIX - expansion` descriptions can contribute `PREFIX` when the acronym is safe to use.
+- Non-initialism prefixes such as `URTI` can be used when the expansion is a base phrase, but are not derived from expansions that add unencoded specificity such as `viral`.
+- Simple diabetes mellitus descriptions can contribute GP shorthand such as `Type 2 diabetes` while avoiding broad complication phrases.
+- Examination descriptions ending `on auscultation` can contribute the shorter base phrase, for example `Chest clear` from `Chest clear on auscultation`.
+
+`build-rf2` uses RF2 concept, description, language, and refset snapshot files. It applies the same description-derived variant rules and should become the production build path because it can include active descriptions, synonyms, and UK language acceptability.
 
 Both build paths still accept an optional alias file, but this should be a fallback for locally governed content not present in the enriched terminology export.
 

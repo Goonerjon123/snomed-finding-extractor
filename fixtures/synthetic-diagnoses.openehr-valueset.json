@@ -57,6 +57,78 @@
         }
       ],
       "aliases": []
+    },
+    {
+      "code": "4000000003",
+      "display": "Type 2 diabetes mellitus",
+      "fsn": "Diabetes mellitus type 2 (disorder)",
+      "active": true,
+      "system": "http://snomed.info/sct",
+      "descriptions": [
+        {
+          "descriptionId": "400000000301",
+          "term": "Type 2 diabetes mellitus",
+          "type": "preferred",
+          "acceptability": "preferred",
+          "active": true
+        },
+        {
+          "descriptionId": "400000000302",
+          "term": "T2DM - diabetes mellitus type 2",
+          "type": "synonym",
+          "acceptability": "acceptable",
+          "active": true
+        }
+      ],
+      "aliases": []
+    },
+    {
+      "code": "4000000004",
+      "display": "Upper respiratory tract infection",
+      "fsn": "Upper respiratory tract infection (disorder)",
+      "active": true,
+      "system": "http://snomed.info/sct",
+      "descriptions": [
+        {
+          "descriptionId": "400000000401",
+          "term": "Upper respiratory tract infection",
+          "type": "preferred",
+          "acceptability": "preferred",
+          "active": true
+        },
+        {
+          "descriptionId": "400000000402",
+          "term": "URTI - Infection of the upper respiratory tract",
+          "type": "synonym",
+          "acceptability": "acceptable",
+          "active": true
+        }
+      ],
+      "aliases": []
+    },
+    {
+      "code": "4000000005",
+      "display": "Viral upper respiratory tract infection",
+      "fsn": "Viral upper respiratory tract infection (disorder)",
+      "active": true,
+      "system": "http://snomed.info/sct",
+      "descriptions": [
+        {
+          "descriptionId": "400000000501",
+          "term": "Viral upper respiratory tract infection",
+          "type": "preferred",
+          "acceptability": "preferred",
+          "active": true
+        },
+        {
+          "descriptionId": "400000000502",
+          "term": "URTI - Viral upper respiratory tract infection",
+          "type": "synonym",
+          "acceptability": "acceptable",
+          "active": true
+        }
+      ],
+      "aliases": []
     }
   ]
 }
