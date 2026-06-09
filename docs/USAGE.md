@@ -26,7 +26,7 @@ cargo run --bin snomed-extract -- build-openehr `
   --output "out\observations-20260201.artefact.json"
 ```
 
-The observations importer also adds a small versioned set of built-in Objective aliases when the matching observable concept is in the refset, including `BP`, `HR`, `RR`, `SpO2`, `sats`, `O2 sats`, `temp`, and `BMI`. Simple two-word rate observables also create numeric-only labels, so `Pulse rate` can match `Pulse 96` or `P: 96`; those short labels are ignored unless followed by a numeric value.
+The observations importer also adds a small versioned set of built-in Objective aliases when the matching observable concept is in the refset, including `BP`, `HR`, `RR`, `SpO2`, `sats`, `O2 sats`, `temp`, and `BMI`. Simple two-word rate observables create numeric-only labels, so `Pulse rate` can match `Pulse 96` or `P: 96`. Official acronym descriptions can also contribute numeric-only labels where the expansion is a simple temperature observable, so `BT - Body temperature` can contribute `T` for `T: 37.8`. Those short labels are ignored unless followed by a numeric value.
 
 Build the Objective-field examination findings artefact from the examination findings value set:
 

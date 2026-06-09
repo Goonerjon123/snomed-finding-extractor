@@ -572,6 +572,17 @@ fn push_observable_numeric_label_variants(
 }
 
 fn observable_numeric_labels(term: &str) -> Vec<String> {
+    let mut labels = Vec::new();
+    labels.extend(simple_rate_numeric_labels(term));
+    labels.extend(acronym_expansion_numeric_labels(term));
+    let mut seen = HashSet::new();
+    labels
+        .into_iter()
+        .filter(|label| seen.insert(normalize_term(label)))
+        .collect()
+}
+
+fn simple_rate_numeric_labels(term: &str) -> Vec<String> {
     let normalized = normalize_term(term);
     let words = normalized.split(' ').collect::<Vec<_>>();
     if words.len() != 2 || words[1] != "rate" || words[0].chars().count() < 4 {
@@ -583,6 +594,39 @@ fn observable_numeric_labels(term: &str) -> Vec<String> {
         labels.push(initial.to_ascii_uppercase().to_string());
     }
     labels
+}
+
+fn acronym_expansion_numeric_labels(term: &str) -> Vec<String> {
+    let Some((prefix, expansion)) = split_observable_acronym_expansion(term) else {
+        return Vec::new();
+    };
+    if !acronym_matches_expansion(prefix, expansion) {
+        return Vec::new();
+    }
+
+    let normalized_expansion = normalize_term(expansion);
+    let words = normalized_expansion.split(' ').collect::<Vec<_>>();
+    if words.len() == 2 && words[1] == "temperature" && words[0].chars().count() >= 4 {
+        return vec!["T".to_string()];
+    }
+
+    Vec::new()
+}
+
+fn split_observable_acronym_expansion(term: &str) -> Option<(&str, &str)> {
+    let (prefix, expansion) = term.split_once(" - ")?;
+    let prefix = prefix.trim();
+    let expansion = expansion.trim();
+    if prefix.len() < 2 || prefix.len() > 12 || expansion.len() < 5 {
+        return None;
+    }
+    if !prefix.chars().all(|ch| ch.is_ascii_alphanumeric()) {
+        return None;
+    }
+    if !prefix.chars().any(|ch| ch.is_ascii_uppercase()) {
+        return None;
+    }
+    Some((prefix, expansion))
 }
 
 fn capitalize_label(label: &str) -> String {
@@ -883,6 +927,10 @@ mod tests {
         assert_eq!(
             observable_numeric_labels("Respiratory rate"),
             vec!["Respiratory".to_string(), "R".to_string()]
+        );
+        assert_eq!(
+            observable_numeric_labels("BT - Body temperature"),
+            vec!["T".to_string()]
         );
         assert!(observable_numeric_labels("Blood pressure").is_empty());
     }

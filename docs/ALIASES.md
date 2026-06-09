@@ -35,4 +35,4 @@ The importer also derives safe runtime variants from those official descriptions
 
 Derived acronym prefixes are still safety-gated. For example, the importer can derive `URTI` from a base description such as `URTI - Infection of the upper respiratory tract`, but it will not derive the bare acronym from a more specific description such as `URTI - Viral upper respiratory tract infection`, because that would silently add a viral qualifier that the clinician did not type.
 
-Observable labels have an extra safety gate. Short labels such as `P` from `Pulse rate` are accepted only when followed by a numeric value, and ordinary prose remains subject to the normal ambiguity checks.
+Observable labels have an extra safety gate. Short labels such as `P` from `Pulse rate` or `T` from `BT - Body temperature` are accepted only when followed by a numeric value, and ordinary prose remains subject to the normal ambiguity checks.

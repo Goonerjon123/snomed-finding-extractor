@@ -85,7 +85,8 @@ fn extracts_numeric_observable_labels_only_before_values() {
     let response = extractor
         .extract_observables(ObservableExtractRequest {
             note_id: Some("obs-3".to_string()),
-            objective: "P: 96. Pulse 96. PR: 96. P waves normal.".to_string(),
+            objective: "T: 37.8. P: 96. Pulse 96. PR: 96. T waves normal. P waves normal."
+                .to_string(),
             include_suppressed: true,
             refset_id: Some("785380551000001102".to_string()),
         })
@@ -103,9 +104,17 @@ fn extracts_numeric_observable_labels_only_before_values() {
         })
         .collect::<Vec<_>>();
 
+    assert!(positives.contains(&("2000000005", SoapField::Objective, "T")));
     assert!(positives.contains(&("2000000006", SoapField::Objective, "P")));
     assert!(positives.contains(&("2000000006", SoapField::Objective, "Pulse")));
     assert!(positives.contains(&("2000000006", SoapField::Objective, "PR")));
+    assert_eq!(
+        positives
+            .iter()
+            .filter(|item| **item == ("2000000005", SoapField::Objective, "T"))
+            .count(),
+        1
+    );
     assert_eq!(
         positives
             .iter()

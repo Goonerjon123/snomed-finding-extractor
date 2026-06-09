@@ -102,7 +102,7 @@ The importer also derives conservative variants from those official descriptions
 - Morphology descriptions can contribute constrained phrase variants such as `swollen X` from `Swelling of X`.
 - Examination descriptions ending `on auscultation` can contribute the shorter base phrase, for example `Chest clear` from `Chest clear on auscultation`.
 - Body-site sign phrases can match with a small number of intervening modifiers, for example `Exudate on tonsils` matching `Exudate on swollen left tonsil`.
-- Simple two-word rate observables can contribute numeric-only labels such as `Pulse` and `P` from `Pulse rate`; these labels are accepted only when followed by a numeric value.
+- Simple two-word rate observables can contribute numeric-only labels such as `Pulse` and `P` from `Pulse rate`; official acronym descriptions can contribute numeric-only temperature labels such as `T` from `BT - Body temperature`. These labels are accepted only when followed by a numeric value.
 
 `build-rf2` uses RF2 concept, description, language, and refset snapshot files. It applies the same description-derived variant rules and should become the production build path because it can include active descriptions, synonyms, and UK language acceptability.
 

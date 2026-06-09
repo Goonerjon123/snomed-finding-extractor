@@ -115,6 +115,13 @@
           "type": "preferred",
           "acceptability": "preferred",
           "active": true
+        },
+        {
+          "descriptionId": "200000000502",
+          "term": "BT - Body temperature",
+          "type": "synonym",
+          "acceptability": "acceptable",
+          "active": true
         }
       ]
     },
