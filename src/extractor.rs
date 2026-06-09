@@ -2,8 +2,8 @@ use crate::context::classify_assertion;
 use crate::error::{ExtractorError, Result};
 use crate::matcher::{RawMatch, TerminologyMatcher};
 use crate::model::{
-    ExaminationFindingsExtractRequest, ExtractRequest, ExtractResponse, FindingMatch,
-    ObservableExtractRequest, SoapField, SuppressedMatch,
+    DiagnosisExtractRequest, ExaminationFindingsExtractRequest, ExtractRequest, ExtractResponse,
+    FindingMatch, ObservableExtractRequest, SoapField, SuppressedMatch,
 };
 use crate::terminology::TerminologyArtefact;
 use crate::{ENGINE_VERSION, RULESET_VERSION};
@@ -41,6 +41,10 @@ impl Extractor {
         request: ExaminationFindingsExtractRequest,
     ) -> Result<ExtractResponse> {
         self.extract_with_kind(request.into(), ExtractionKind::ExaminationFinding)
+    }
+
+    pub fn extract_diagnoses(&self, request: DiagnosisExtractRequest) -> Result<ExtractResponse> {
+        self.extract_with_kind(request.into(), ExtractionKind::Diagnosis)
     }
 
     fn extract_with_kind(
@@ -106,6 +110,7 @@ enum ExtractionKind {
     Finding,
     Observable,
     ExaminationFinding,
+    Diagnosis,
 }
 
 fn accepted_rule_ids(extraction_kind: ExtractionKind) -> Vec<String> {
@@ -115,6 +120,7 @@ fn accepted_rule_ids(extraction_kind: ExtractionKind) -> Vec<String> {
         ExtractionKind::ExaminationFinding => {
             vec!["ASSERT_AFFIRMED_PATIENT_EXAMINATION_FINDING".to_string()]
         }
+        ExtractionKind::Diagnosis => vec!["ASSERT_AFFIRMED_PATIENT_DIAGNOSIS".to_string()],
     }
 }
 
@@ -130,6 +136,10 @@ fn accepted_explanation(extraction_kind: ExtractionKind, field: SoapField) -> St
         ),
         ExtractionKind::ExaminationFinding => format!(
             "Accepted as an affirmed patient examination finding in the {} field; no suppression rule fired.",
+            field.as_str()
+        ),
+        ExtractionKind::Diagnosis => format!(
+            "Accepted as an affirmed patient diagnosis/disorder in the {} field; no suppression rule fired.",
             field.as_str()
         ),
     }

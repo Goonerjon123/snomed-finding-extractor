@@ -97,6 +97,30 @@ impl From<ExaminationFindingsExtractRequest> for ExtractRequest {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct DiagnosisExtractRequest {
+    #[serde(default)]
+    pub note_id: Option<String>,
+    #[serde(default)]
+    pub assessment: String,
+    #[serde(default)]
+    pub include_suppressed: bool,
+    #[serde(default)]
+    pub refset_id: Option<String>,
+}
+
+impl From<DiagnosisExtractRequest> for ExtractRequest {
+    fn from(request: DiagnosisExtractRequest) -> Self {
+        Self {
+            note_id: request.note_id,
+            assessment: request.assessment,
+            include_suppressed: request.include_suppressed,
+            refset_id: request.refset_id,
+            ..Self::default()
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ExtractResponse {
     pub note_id: Option<String>,

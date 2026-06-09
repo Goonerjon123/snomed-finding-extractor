@@ -6,8 +6,8 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use clap::Parser;
 use snomed_finding_extractor::{
-    ExaminationFindingsExtractRequest, ExtractRequest, ExtractResponse, Extractor,
-    ObservableExtractRequest, TerminologyArtefact,
+    DiagnosisExtractRequest, ExaminationFindingsExtractRequest, ExtractRequest, ExtractResponse,
+    Extractor, ObservableExtractRequest, TerminologyArtefact,
 };
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -24,6 +24,8 @@ struct Cli {
     observables_artefact: Option<PathBuf>,
     #[arg(long)]
     examination_findings_artefact: Option<PathBuf>,
+    #[arg(long, alias = "disorders-artefact")]
+    diagnoses_artefact: Option<PathBuf>,
     #[arg(long, default_value = "127.0.0.1")]
     host: String,
     #[arg(long, default_value_t = 8060)]
@@ -35,6 +37,7 @@ struct AppState {
     findings: Option<Arc<Extractor>>,
     observables: Option<Arc<Extractor>>,
     examination_findings: Option<Arc<Extractor>>,
+    diagnoses: Option<Arc<Extractor>>,
 }
 
 #[tokio::main]
@@ -44,9 +47,10 @@ async fn main() -> Result<()> {
     if cli.artefact.is_none()
         && cli.observables_artefact.is_none()
         && cli.examination_findings_artefact.is_none()
+        && cli.diagnoses_artefact.is_none()
     {
         anyhow::bail!(
-            "configure at least one artefact with --artefact, --observables-artefact, or --examination-findings-artefact"
+            "configure at least one artefact with --artefact, --observables-artefact, --examination-findings-artefact, or --diagnoses-artefact"
         );
     }
 
@@ -56,10 +60,12 @@ async fn main() -> Result<()> {
         cli.examination_findings_artefact.as_ref(),
         "examination findings",
     )?;
+    let diagnoses = load_optional_extractor(cli.diagnoses_artefact.as_ref(), "diagnoses")?;
     let state = AppState {
         findings,
         observables,
         examination_findings,
+        diagnoses,
     };
     let address: SocketAddr = format!("{}:{}", cli.host, cli.port).parse()?;
 
@@ -74,6 +80,7 @@ async fn main() -> Result<()> {
             "/v1/extract-examination-findings",
             post(extract_examination_findings),
         )
+        .route("/v1/extract-diagnoses", post(extract_diagnoses))
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
@@ -167,6 +174,24 @@ async fn extract_examination_findings(
 
     extractor
         .extract_examination_findings(request)
+        .map(Json)
+        .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()))
+}
+
+async fn extract_diagnoses(
+    State(state): State<AppState>,
+    Json(request): Json<DiagnosisExtractRequest>,
+) -> std::result::Result<Json<ExtractResponse>, (StatusCode, String)> {
+    let Some(extractor) = state.diagnoses.as_ref() else {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "diagnosis extractor is not configured; start the server with --diagnoses-artefact"
+                .to_string(),
+        ));
+    };
+
+    extractor
+        .extract_diagnoses(request)
         .map(Json)
         .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()))
 }

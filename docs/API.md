@@ -2,7 +2,7 @@
 
 ## Intended Use
 
-The engine supports clinicians by identifying candidate SNOMED CT finding codes mentioned in SOAP free text, candidate SNOMED CT observable entity codes mentioned in the Objective field, and candidate SNOMED CT examination finding codes mentioned in the Objective field for clinician review and confirmation.
+The engine supports clinicians by identifying candidate SNOMED CT finding codes mentioned in SOAP free text, candidate SNOMED CT observable entity codes mentioned in the Objective field, candidate SNOMED CT examination finding codes mentioned in the Objective field, and candidate SNOMED CT diagnosis/disorder codes mentioned in the Assessment field for clinician review and confirmation.
 
 ## Finding Request
 
@@ -52,6 +52,21 @@ The observable endpoint only accepts Objective text. It should be backed by an a
 
 The examination findings endpoint only accepts Objective text. It should be backed by an artefact built from the examination findings value set, for example refset `932266131000001101`.
 
+## Diagnosis Request
+
+`POST /v1/extract-diagnoses`
+
+```json
+{
+  "note_id": "optional-local-id",
+  "assessment": "Asthma. ?Pneumonia.",
+  "include_suppressed": true,
+  "refset_id": "optional-loaded-diagnoses-refset-id"
+}
+```
+
+The diagnosis endpoint only accepts Assessment text. It should be backed by an artefact built from the disorders/diagnoses value set, for example refset `782688301000001101`.
+
 ## Response
 
 ```json
@@ -80,7 +95,7 @@ The examination findings endpoint only accepts Objective text. It should be back
 }
 ```
 
-The response shape is the same for all endpoints. For `/v1/extract-observables` and `/v1/extract-examination-findings`, every returned `field` is `objective`, and the `concept_id` values come from the endpoint's loaded artefact.
+The response shape is the same for all endpoints. For `/v1/extract-observables` and `/v1/extract-examination-findings`, every returned `field` is `objective`. For `/v1/extract-diagnoses`, every returned `field` is `assessment`. The `concept_id` values come from the endpoint's loaded artefact.
 
 ## Suppressed Assertions
 

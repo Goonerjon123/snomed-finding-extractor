@@ -49,6 +49,20 @@ The file inspected on 1 June 2026 is an openEHR terminology value set binding ma
 - terminology release date: `20260201`
 - member shape: `code`, `display`, `fsn`, `active`, `system`, `descriptions`
 
+The supplied current diagnosis/disorder value set path is:
+
+```text
+D:\SnoBehr\Refsets for Export\Disorders\diagnoses-20260201.openehr-valueset.json
+```
+
+The file inspected on 9 June 2026 is an openEHR terminology value set binding manifest with:
+
+- id: `diagnoses-5`
+- refset id: `782688301000001101`
+- terminology release date: `20260201`
+- semantic scope: all active SNOMED CT concepts whose fully specified name semantic tag is `(disorder)`
+- member shape: `code`, `display`, `fsn`, `active`, `system`, `descriptions`
+
 ## Repository Rule
 
 Do not commit:

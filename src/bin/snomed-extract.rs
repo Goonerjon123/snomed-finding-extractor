@@ -5,8 +5,8 @@ use snomed_finding_extractor::rf2::{
 };
 use snomed_finding_extractor::synthetic::{generate_synthetic_cases, SyntheticCase};
 use snomed_finding_extractor::{
-    AliasSet, ExaminationFindingsExtractRequest, ExtractRequest, Extractor,
-    ObservableExtractRequest, TerminologyArtefact,
+    AliasSet, DiagnosisExtractRequest, ExaminationFindingsExtractRequest, ExtractRequest,
+    Extractor, ObservableExtractRequest, TerminologyArtefact,
 };
 use std::collections::BTreeSet;
 use std::fs::File;
@@ -44,6 +44,16 @@ enum Command {
 
     /// Extract examination finding candidates from an Objective-only JSON request.
     ExtractExaminationFindings {
+        #[arg(long)]
+        artefact: PathBuf,
+        #[arg(long)]
+        input: Option<PathBuf>,
+        #[arg(long)]
+        include_suppressed: bool,
+    },
+
+    /// Extract diagnosis/disorder candidates from an Assessment-only JSON request.
+    ExtractDiagnoses {
         #[arg(long)]
         artefact: PathBuf,
         #[arg(long)]
@@ -143,6 +153,19 @@ fn main() -> Result<()> {
                     .context("failed to parse examination findings extraction request JSON")?;
             request.include_suppressed |= include_suppressed;
             let response = extractor.extract_examination_findings(request)?;
+            println!("{}", serde_json::to_string_pretty(&response)?);
+        }
+        Command::ExtractDiagnoses {
+            artefact,
+            input,
+            include_suppressed,
+        } => {
+            let extractor = load_extractor(&artefact)?;
+            let mut request: DiagnosisExtractRequest =
+                serde_json::from_str(&read_input(input.as_ref())?)
+                    .context("failed to parse diagnosis extraction request JSON")?;
+            request.include_suppressed |= include_suppressed;
+            let response = extractor.extract_diagnoses(request)?;
             println!("{}", serde_json::to_string_pretty(&response)?);
         }
         Command::BuildOpenehr {

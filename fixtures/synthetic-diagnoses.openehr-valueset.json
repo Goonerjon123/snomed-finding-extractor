@@ -1,0 +1,62 @@
+{
+  "schema": "https://snoBehr.local/schemas/openehr-terminology-binding-manifest-1.0",
+  "kind": "openEHR terminology value set binding aid",
+  "id": "diagnoses",
+  "name": "Diagnoses",
+  "description": "Tiny test fixture only; not SNOMED content.",
+  "clinicalInformationModel": "openEHR archetypes/templates",
+  "terminology": {
+    "system": "http://snomed.info/sct",
+    "edition": "http://snomed.info/sct/999000031000000106",
+    "version": "http://snomed.info/sct/999000031000000106/version/20260201",
+    "releaseDate": "20260201"
+  },
+  "valueSet": {
+    "fhirCanonical": "https://example.invalid/fhir/ValueSet/diagnoses",
+    "rf2RefsetId": "782688301000001101",
+    "rf2ModuleId": "900000000000207008"
+  },
+  "members": [
+    {
+      "code": "4000000001",
+      "display": "Asthma",
+      "fsn": "Asthma (disorder)",
+      "active": true,
+      "system": "http://snomed.info/sct",
+      "descriptions": [
+        {
+          "descriptionId": "400000000101",
+          "term": "Asthma",
+          "type": "preferred",
+          "acceptability": "preferred",
+          "active": true
+        },
+        {
+          "descriptionId": "400000000102",
+          "term": "Bronchial asthma",
+          "type": "synonym",
+          "acceptability": "acceptable",
+          "active": true
+        }
+      ],
+      "aliases": []
+    },
+    {
+      "code": "4000000002",
+      "display": "Pneumonia",
+      "fsn": "Pneumonia (disorder)",
+      "active": true,
+      "system": "http://snomed.info/sct",
+      "descriptions": [
+        {
+          "descriptionId": "400000000201",
+          "term": "Pneumonia",
+          "type": "preferred",
+          "acceptability": "preferred",
+          "active": true
+        }
+      ],
+      "aliases": []
+    }
+  ]
+}

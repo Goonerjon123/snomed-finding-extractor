@@ -2,7 +2,7 @@
 name = "snomed-finding-extractor"
 version = "0.1.0"
 edition = "2021"
-description = "Fast, explainable SNOMED CT finding, observable entity, and examination finding extraction for clinician-confirmed SOAP note coding."
+description = "Fast, explainable SNOMED CT finding, observable entity, examination finding, and diagnosis extraction for clinician-confirmed SOAP note coding."
 repository = "https://github.com/Goonerjon123/snomed-finding-extractor"
 publish = false
 

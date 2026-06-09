@@ -36,6 +36,14 @@ cargo run --bin snomed-extract -- build-openehr `
 
 The examination findings importer uses the terms and synonyms supplied in the examination findings value set. Local shorthand such as `Chest clear` should be added to the governed value set export or supplied through a reviewed alias file, not hard-coded in the engine.
 
+Build the Assessment-field diagnosis/disorder artefact from the Disorders value set:
+
+```powershell
+cargo run --bin snomed-extract -- build-openehr `
+  --valueset "D:\SnoBehr\Refsets for Export\Disorders\diagnoses-20260201.openehr-valueset.json" `
+  --output "out\diagnoses-20260201.artefact.json"
+```
+
 Production deployments should build this artefact during release packaging, record the source value set hash, and keep the generated artefact out of public source control unless SNOMED licensing has been explicitly approved.
 
 ## 2. Run The API Sidecar
@@ -45,6 +53,7 @@ cargo run --features http --bin snomed-serve -- `
   --artefact "out\symptoms-20260201.artefact.json" `
   --observables-artefact "out\observations-20260201.artefact.json" `
   --examination-findings-artefact "out\examination-findings-20260201.artefact.json" `
+  --diagnoses-artefact "out\diagnoses-20260201.artefact.json" `
   --host 127.0.0.1 `
   --port 8060
 ```
@@ -75,6 +84,13 @@ Examination finding extraction endpoint:
 
 ```http
 POST http://127.0.0.1:8060/v1/extract-examination-findings
+Content-Type: application/json
+```
+
+Diagnosis/disorder extraction endpoint:
+
+```http
+POST http://127.0.0.1:8060/v1/extract-diagnoses
 Content-Type: application/json
 ```
 
@@ -125,7 +141,20 @@ The observable endpoint deliberately accepts only the `objective` field. It retu
 
 The examination findings endpoint deliberately accepts only the `objective` field. It returns SNOMED CT examination finding candidates from the examination findings artefact, not vital-sign observable candidates from the observations artefact.
 
-## 6. Response Shape
+## 6. Diagnosis Request Shape
+
+```json
+{
+  "note_id": "optional-note-id",
+  "assessment": "Asthma. ?Pneumonia.",
+  "include_suppressed": true,
+  "refset_id": "782688301000001101"
+}
+```
+
+The diagnosis endpoint deliberately accepts only the `assessment` field. It returns SNOMED CT diagnosis/disorder candidates from the diagnoses artefact.
+
+## 7. Response Shape
 
 ```json
 {
@@ -166,9 +195,9 @@ The examination findings endpoint deliberately accepts only the `objective` fiel
 }
 ```
 
-For `/v1/extract-observables` and `/v1/extract-examination-findings`, every accepted or suppressed item has `"field": "objective"`.
+For `/v1/extract-observables` and `/v1/extract-examination-findings`, every accepted or suppressed item has `"field": "objective"`. For `/v1/extract-diagnoses`, every accepted or suppressed item has `"field": "assessment"`.
 
-## 7. Example Client Calls
+## 8. Example Client Calls
 
 ```powershell
 $body = @{
@@ -219,7 +248,23 @@ Invoke-RestMethod `
   -Body $body
 ```
 
-## 8. CLI Calls
+Diagnoses/disorders from the Assessment field:
+
+```powershell
+$body = @{
+  assessment = "Asthma. ?Pneumonia."
+  include_suppressed = $true
+  refset_id = "782688301000001101"
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+  -Uri "http://127.0.0.1:8060/v1/extract-diagnoses" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+## 9. CLI Calls
 
 ```powershell
 cargo run --bin snomed-extract -- extract-observables `
@@ -233,7 +278,13 @@ cargo run --bin snomed-extract -- extract-examination-findings `
   --input "fixtures\example-examination-findings-request.json"
 ```
 
-## 9. Integration Rules
+```powershell
+cargo run --bin snomed-extract -- extract-diagnoses `
+  --artefact "out\diagnoses-20260201.artefact.json" `
+  --input "fixtures\example-diagnosis-request.json"
+```
+
+## 10. Integration Rules
 
 - Treat `matches` as candidate concepts for clinician confirmation, not automatically confirmed record entries.
 - Use `suppressed` matches to show why terms were not coded, especially negated and planned findings.
@@ -241,6 +292,6 @@ cargo run --bin snomed-extract -- extract-examination-findings `
 - Do not log raw note text in the calling service unless your EPR logging policy explicitly permits it.
 - Rebuild and revalidate the artefact whenever the value set, SNOMED release, synonym export, or ruleset changes.
 
-## 10. Browser Console
+## 11. Browser Console
 
-The server also serves `/` as a local manual test console. This is not the integration surface for the EPR; use `/v1/extract`, `/v1/extract-observables`, and `/v1/extract-examination-findings` for backend integration.
+The server also serves `/` as a local manual test console. This is not the integration surface for the EPR; use `/v1/extract`, `/v1/extract-observables`, `/v1/extract-examination-findings`, and `/v1/extract-diagnoses` for backend integration.
