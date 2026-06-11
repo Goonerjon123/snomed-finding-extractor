@@ -68,8 +68,7 @@ impl TerminologyMatcher {
         let mut candidates = Vec::new();
         let mut concepts_by_term: HashMap<String, HashSet<String>> = HashMap::new();
         let mut numeric_concepts_by_term: HashMap<String, HashSet<String>> = HashMap::new();
-        let mut exact_preferred_concepts_by_term: HashMap<String, HashSet<String>> =
-            HashMap::new();
+        let mut exact_preferred_concepts_by_term: HashMap<String, HashSet<String>> = HashMap::new();
         let mut seen = HashSet::new();
 
         for concept in artefact.concepts.iter().filter(|concept| concept.active) {
