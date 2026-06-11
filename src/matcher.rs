@@ -68,9 +68,12 @@ impl TerminologyMatcher {
         let mut candidates = Vec::new();
         let mut concepts_by_term: HashMap<String, HashSet<String>> = HashMap::new();
         let mut numeric_concepts_by_term: HashMap<String, HashSet<String>> = HashMap::new();
+        let mut exact_preferred_concepts_by_term: HashMap<String, HashSet<String>> =
+            HashMap::new();
         let mut seen = HashSet::new();
 
         for concept in artefact.concepts.iter().filter(|concept| concept.active) {
+            let normalized_preferred = normalize_term(&concept.preferred_term);
             for variant in concept.runtime_variants() {
                 let normalized = normalize_term(&variant.text);
                 if normalized.is_empty()
@@ -86,6 +89,12 @@ impl TerminologyMatcher {
                     .entry(normalized.clone())
                     .or_default()
                     .insert(concept.concept_id.clone());
+                if normalized == normalized_preferred {
+                    exact_preferred_concepts_by_term
+                        .entry(normalized.clone())
+                        .or_default()
+                        .insert(concept.concept_id.clone());
+                }
                 if variant.requires_numeric_value {
                     numeric_concepts_by_term
                         .entry(normalized.clone())
@@ -116,7 +125,11 @@ impl TerminologyMatcher {
                     .map(|concepts| concepts.len() > 1)
                     .unwrap_or(false)
             };
-            if is_ambiguous {
+            let has_unique_exact_preferred = exact_preferred_concepts_by_term
+                .get(&candidate.pattern)
+                .map(|concepts| concepts.len() == 1 && concepts.contains(&candidate.concept_id))
+                .unwrap_or(false);
+            if is_ambiguous && !has_unique_exact_preferred {
                 continue;
             }
 
@@ -444,7 +457,7 @@ mod tests {
         artefact.concepts.push(ConceptEntry {
             concept_id: "1000000002".to_string(),
             active: true,
-            preferred_term: "Different concept".to_string(),
+            preferred_term: "Chest pain".to_string(),
             descriptions: vec![],
             variants: vec![TermVariant {
                 text: "chest pain".to_string(),
@@ -479,5 +492,52 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn keeps_unique_exact_preferred_term_when_variant_is_ambiguous() {
+        let artefact = TerminologyArtefact {
+            schema_version: 1,
+            terminology_version: "test".to_string(),
+            source_release: "test".to_string(),
+            refset_id: "test-refset".to_string(),
+            generated_at_utc: "test".to_string(),
+            concepts: vec![
+                ConceptEntry {
+                    concept_id: "49727002".to_string(),
+                    active: true,
+                    preferred_term: "Cough".to_string(),
+                    descriptions: vec![],
+                    variants: vec![TermVariant {
+                        text: "Cough".to_string(),
+                        source: "fixture".to_string(),
+                        description_id: None,
+                        allow_ambiguous: false,
+                        requires_numeric_value: false,
+                    }],
+                },
+                ConceptEntry {
+                    concept_id: "1000000004".to_string(),
+                    active: true,
+                    preferred_term: "Cough variant asthma".to_string(),
+                    descriptions: vec![],
+                    variants: vec![TermVariant {
+                        text: "Cough".to_string(),
+                        source: "fixture-derived".to_string(),
+                        description_id: None,
+                        allow_ambiguous: false,
+                        requires_numeric_value: false,
+                    }],
+                },
+            ],
+            artefact_hash: String::new(),
+        };
+
+        let matcher = TerminologyMatcher::new(&artefact).unwrap();
+        let matches = matcher.find_in_field(SoapField::History, "Cough for 3 months");
+
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].concept_id, "49727002");
+        assert_eq!(matches[0].preferred_term, "Cough");
     }
 }
