@@ -70,13 +70,27 @@ impl Extractor {
                 continue;
             }
 
-            for raw in self.matcher.find_in_field(field, text) {
-                let decision = classify_assertion(field, text, raw.span_start, raw.span_end);
+            let raw_matches = self.matcher.find_in_field(field, text);
+            let spans = raw_matches
+                .iter()
+                .map(|raw| (raw.span_start, raw.span_end))
+                .collect::<Vec<_>>();
+
+            for (index, raw) in raw_matches.into_iter().enumerate() {
+                // Sibling spans let a cue scope across coordinated matches:
+                // "no cough or wheeze" suppresses both.
+                let siblings = spans
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(other, span)| (other != index).then_some(*span))
+                    .collect::<Vec<_>>();
+                let decision =
+                    classify_assertion(field, text, raw.span_start, raw.span_end, &siblings);
                 if decision.accepted {
                     matches.push(to_finding_match(
                         raw,
-                        accepted_rule_ids(extraction_kind),
-                        accepted_explanation(extraction_kind, field),
+                        accepted_rule_ids(extraction_kind, &decision),
+                        accepted_explanation(extraction_kind, field, &decision),
                     ));
                 } else if request.include_suppressed {
                     suppressed.push(to_suppressed_match(
@@ -113,18 +127,49 @@ enum ExtractionKind {
     Diagnosis,
 }
 
-fn accepted_rule_ids(extraction_kind: ExtractionKind) -> Vec<String> {
+fn kind_rule_id(extraction_kind: ExtractionKind) -> &'static str {
     match extraction_kind {
-        ExtractionKind::Finding => vec!["ASSERT_AFFIRMED_PATIENT_FINDING".to_string()],
-        ExtractionKind::Observable => vec!["ASSERT_AFFIRMED_PATIENT_OBSERVABLE".to_string()],
-        ExtractionKind::ExaminationFinding => {
-            vec!["ASSERT_AFFIRMED_PATIENT_EXAMINATION_FINDING".to_string()]
-        }
-        ExtractionKind::Diagnosis => vec!["ASSERT_AFFIRMED_PATIENT_DIAGNOSIS".to_string()],
+        ExtractionKind::Finding => "ASSERT_AFFIRMED_PATIENT_FINDING",
+        ExtractionKind::Observable => "ASSERT_AFFIRMED_PATIENT_OBSERVABLE",
+        ExtractionKind::ExaminationFinding => "ASSERT_AFFIRMED_PATIENT_EXAMINATION_FINDING",
+        ExtractionKind::Diagnosis => "ASSERT_AFFIRMED_PATIENT_DIAGNOSIS",
     }
 }
 
-fn accepted_explanation(extraction_kind: ExtractionKind, field: SoapField) -> String {
+fn accepted_rule_ids(
+    extraction_kind: ExtractionKind,
+    decision: &crate::context::AssertionDecision,
+) -> Vec<String> {
+    decision
+        .rule_ids
+        .iter()
+        .map(|rule_id| {
+            if rule_id == "ASSERT_AFFIRMED_PATIENT_FINDING" {
+                kind_rule_id(extraction_kind).to_string()
+            } else {
+                rule_id.clone()
+            }
+        })
+        .collect()
+}
+
+fn accepted_explanation(
+    extraction_kind: ExtractionKind,
+    field: SoapField,
+    decision: &crate::context::AssertionDecision,
+) -> String {
+    if decision
+        .rule_ids
+        .iter()
+        .any(|rule_id| rule_id == "PLAN_COMPLETED_ACTION")
+    {
+        return decision.explanation.clone();
+    }
+
+    kind_explanation(extraction_kind, field)
+}
+
+fn kind_explanation(extraction_kind: ExtractionKind, field: SoapField) -> String {
     match extraction_kind {
         ExtractionKind::Finding => format!(
             "Accepted as an affirmed patient finding in the {} field; no suppression rule fired.",

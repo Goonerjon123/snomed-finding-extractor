@@ -228,7 +228,12 @@ fn expand_gp_shorthand(normalized: &NormalizedText, field: SoapField) -> Normali
             }
             None => {
                 let (start, end) = tokens[index];
-                push_separator(&mut out, &mut starts, &mut ends, normalized.byte_to_original_start[start]);
+                push_separator(
+                    &mut out,
+                    &mut starts,
+                    &mut ends,
+                    normalized.byte_to_original_start[start],
+                );
                 out.push_str(&normalized.text[start..end]);
                 starts.extend_from_slice(&normalized.byte_to_original_start[start..end]);
                 ends.extend_from_slice(&normalized.byte_to_original_end[start..end]);
@@ -244,7 +249,12 @@ fn expand_gp_shorthand(normalized: &NormalizedText, field: SoapField) -> Normali
     }
 }
 
-fn push_separator(out: &mut String, starts: &mut Vec<usize>, ends: &mut Vec<usize>, original: usize) {
+fn push_separator(
+    out: &mut String,
+    starts: &mut Vec<usize>,
+    ends: &mut Vec<usize>,
+    original: usize,
+) {
     if !out.is_empty() {
         out.push(' ');
         starts.push(original);
@@ -353,10 +363,7 @@ mod tests {
         let source = "c/o SOB at rest";
         let expanded = normalize_clinical_text(source, SoapField::History);
 
-        assert_eq!(
-            expanded.text,
-            "complains of shortness of breath at rest"
-        );
+        assert_eq!(expanded.text, "complains of shortness of breath at rest");
 
         let start = expanded.text.find("shortness of breath").unwrap();
         let end = start + "shortness of breath".len();
