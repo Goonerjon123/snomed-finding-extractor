@@ -17,6 +17,7 @@ pub mod terminology;
 
 pub use crate::error::{ExtractorError, Result};
 pub use crate::extractor::Extractor;
+pub use crate::matcher::DroppedTerm;
 pub use crate::model::{
     AssertionStatus, DiagnosisExtractRequest, ExaminationFindingsExtractRequest, ExtractRequest,
     ExtractResponse, FindingMatch, ObservableExtractRequest, SoapField, SuppressedMatch,

@@ -97,7 +97,16 @@ fn load_optional_extractor(path: Option<&PathBuf>, label: &str) -> Result<Option
 
     let artefact = TerminologyArtefact::from_path(path)
         .with_context(|| format!("failed to load {label} artefact {}", path.display()))?;
-    Ok(Some(Arc::new(Extractor::new(artefact)?)))
+    let extractor = Extractor::new(artefact)?;
+    let dropped = extractor.dropped_ambiguous_terms().len();
+    if dropped > 0 {
+        tracing::warn!(
+            label,
+            dropped_ambiguous = dropped,
+            "ambiguity guard removed terms from artefact; run `snomed-extract audit-terms` to review"
+        );
+    }
+    Ok(Some(Arc::new(extractor)))
 }
 
 async fn healthz() -> &'static str {

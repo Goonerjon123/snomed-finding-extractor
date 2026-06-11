@@ -66,6 +66,60 @@ fn extracts_affirmed_findings_and_suppresses_unsafe_contexts() {
 }
 
 #[test]
+fn accepts_subjective_as_an_alias_for_the_history_field() {
+    let request: ExtractRequest =
+        serde_json::from_str(r#"{"subjective": "Has cough", "assessment": ""}"#).unwrap();
+    assert_eq!(request.history, "Has cough");
+}
+
+#[test]
+fn reports_terms_dropped_by_the_ambiguity_guard() {
+    // Two distinct concepts share the variant "shared term" with no unique
+    // exact preferred term, so the guard drops it and the audit records it.
+    let artefact = TerminologyArtefact {
+        schema_version: 1,
+        terminology_version: "test".to_string(),
+        source_release: "test".to_string(),
+        refset_id: "fixture-symptoms".to_string(),
+        generated_at_utc: "test".to_string(),
+        artefact_hash: "UNVERIFIED".to_string(),
+        concepts: vec![
+            concept("1000000001", "Chest pain", &["shared term"]),
+            concept("1000000002", "Cough", &["shared term"]),
+        ],
+    };
+    let extractor = Extractor::new(artefact).unwrap();
+
+    let dropped = extractor.dropped_ambiguous_terms();
+    assert!(dropped
+        .iter()
+        .any(|term| term.term == "shared term" && term.competing_concept_count == 2));
+}
+
+fn concept(
+    concept_id: &str,
+    preferred_term: &str,
+    variants: &[&str],
+) -> snomed_finding_extractor::terminology::ConceptEntry {
+    snomed_finding_extractor::terminology::ConceptEntry {
+        concept_id: concept_id.to_string(),
+        active: true,
+        preferred_term: preferred_term.to_string(),
+        descriptions: vec![],
+        variants: variants
+            .iter()
+            .map(|text| snomed_finding_extractor::terminology::TermVariant {
+                text: text.to_string(),
+                source: "fixture".to_string(),
+                description_id: None,
+                allow_ambiguous: false,
+                requires_numeric_value: false,
+            })
+            .collect(),
+    }
+}
+
+#[test]
 fn omits_suppressed_matches_unless_requested() {
     let extractor = extractor();
     let response = extractor

@@ -25,6 +25,11 @@ impl Extractor {
         &self.artefact
     }
 
+    /// Terms the ambiguity guard removed from this artefact at build time.
+    pub fn dropped_ambiguous_terms(&self) -> &[crate::matcher::DroppedTerm] {
+        self.matcher.dropped_ambiguous()
+    }
+
     pub fn extract(&self, request: ExtractRequest) -> Result<ExtractResponse> {
         self.extract_with_kind(request, ExtractionKind::Finding)
     }

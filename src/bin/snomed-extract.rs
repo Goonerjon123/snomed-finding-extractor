@@ -94,6 +94,12 @@ enum Command {
         output: PathBuf,
     },
 
+    /// Report terms the ambiguity guard removed from an artefact.
+    AuditTerms {
+        #[arg(long)]
+        artefact: PathBuf,
+    },
+
     /// Generate synthetic labelled SOAP cases from an artefact.
     GenerateSynthetic {
         #[arg(long)]
@@ -201,6 +207,17 @@ fn main() -> Result<()> {
             apply_aliases_if_present(&mut artefact, aliases.as_ref())?;
             artefact.write_pretty_json(output)?;
         }
+        Command::AuditTerms { artefact } => {
+            let extractor = load_extractor(&artefact)?;
+            let dropped = extractor.dropped_ambiguous_terms();
+            let report = AmbiguityReport {
+                refset_id: extractor.artefact().refset_id.clone(),
+                terminology_version: extractor.artefact().terminology_version.clone(),
+                dropped_ambiguous_count: dropped.len(),
+                dropped_ambiguous: dropped.to_vec(),
+            };
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
         Command::GenerateSynthetic {
             artefact,
             output,
@@ -253,6 +270,14 @@ fn apply_aliases_if_present(
     }
 
     Ok(())
+}
+
+#[derive(Debug, serde::Serialize)]
+struct AmbiguityReport {
+    refset_id: String,
+    terminology_version: String,
+    dropped_ambiguous_count: usize,
+    dropped_ambiguous: Vec<snomed_finding_extractor::DroppedTerm>,
 }
 
 #[derive(Debug, serde::Serialize)]

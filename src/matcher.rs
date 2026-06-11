@@ -5,7 +5,21 @@ use crate::normalization::{
 };
 use crate::terminology::{is_blocked_common_term, TerminologyArtefact};
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder, MatchKind};
+use serde::Serialize;
 use std::collections::{HashMap, HashSet};
+
+/// A terminology term that was excluded from matching because it mapped to
+/// more than one concept without a unique exact preferred term. Surfaced as a
+/// build-time audit so terminology curators can see what the safety guard
+/// silently removed, instead of discovering gaps only at runtime.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct DroppedTerm {
+    pub term: String,
+    pub concept_id: String,
+    pub preferred_term: String,
+    pub source: String,
+    pub competing_concept_count: usize,
+}
 
 #[derive(Debug, Clone)]
 pub struct RawMatch {
@@ -60,6 +74,7 @@ pub struct TerminologyMatcher {
     patterns: Vec<PatternMeta>,
     flexible_patterns: Vec<FlexiblePatternMeta>,
     flexible_by_first_token: HashMap<String, Vec<usize>>,
+    dropped_ambiguous: Vec<DroppedTerm>,
 }
 
 impl TerminologyMatcher {
@@ -115,23 +130,32 @@ impl TerminologyMatcher {
 
         let mut flexible_patterns = Vec::new();
         let mut flexible_by_first_token: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut dropped_ambiguous = Vec::new();
+        let mut dropped_seen = HashSet::new();
         for candidate in candidates {
-            let is_ambiguous = if candidate.requires_numeric_value {
-                numeric_concepts_by_term
-                    .get(&candidate.pattern)
-                    .map(|concepts| concepts.len() > 1)
-                    .unwrap_or(false)
+            let competing = if candidate.requires_numeric_value {
+                &numeric_concepts_by_term
             } else {
-                concepts_by_term
-                    .get(&candidate.pattern)
-                    .map(|concepts| concepts.len() > 1)
-                    .unwrap_or(false)
-            };
+                &concepts_by_term
+            }
+            .get(&candidate.pattern)
+            .map(|concepts| concepts.len())
+            .unwrap_or(0);
+            let is_ambiguous = competing > 1;
             let has_unique_exact_preferred = exact_preferred_concepts_by_term
                 .get(&candidate.pattern)
                 .map(|concepts| concepts.len() == 1 && concepts.contains(&candidate.concept_id))
                 .unwrap_or(false);
             if is_ambiguous && !has_unique_exact_preferred {
+                if dropped_seen.insert((candidate.concept_id.clone(), candidate.pattern.clone())) {
+                    dropped_ambiguous.push(DroppedTerm {
+                        term: candidate.pattern.clone(),
+                        concept_id: candidate.concept_id.clone(),
+                        preferred_term: candidate.preferred_term.clone(),
+                        source: candidate.source.clone(),
+                        competing_concept_count: competing,
+                    });
+                }
                 continue;
             }
 
@@ -184,12 +208,24 @@ impl TerminologyMatcher {
             .build(pattern_strings)
             .map_err(|err| ExtractorError::Matcher(err.to_string()))?;
 
+        dropped_ambiguous.sort_by(|a, b| {
+            b.competing_concept_count
+                .cmp(&a.competing_concept_count)
+                .then_with(|| a.term.cmp(&b.term))
+        });
+
         Ok(Self {
             automaton,
             patterns,
             flexible_patterns,
             flexible_by_first_token,
+            dropped_ambiguous,
         })
+    }
+
+    /// Terms excluded from matching by the ambiguity guard, worst-first.
+    pub fn dropped_ambiguous(&self) -> &[DroppedTerm] {
+        &self.dropped_ambiguous
     }
 
     /// Finds terminology matches in one SOAP field. When `capture_values` is

@@ -24,7 +24,9 @@ impl SoapField {
 pub struct ExtractRequest {
     #[serde(default)]
     pub note_id: Option<String>,
-    #[serde(default)]
+    // The Subjective SOAP field is named `history` here; accept either key so
+    // callers can post the literal SOAP field name.
+    #[serde(default, alias = "subjective")]
     pub history: String,
     #[serde(default)]
     pub objective: String,
