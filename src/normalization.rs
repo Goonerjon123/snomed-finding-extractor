@@ -1,3 +1,4 @@
+use crate::model::SoapField;
 use unicode_normalization::UnicodeNormalization;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,6 +100,176 @@ pub fn normalize_with_map(value: &str) -> NormalizedText {
     }
 }
 
+/// Normalises raw SOAP text and then expands UK general-practice shorthand
+/// ("c/o", "o/e", "h/o", "d&v", "sob", "fhx", ...) into the full clinical
+/// phrases that terminology descriptions actually use. Expansion happens on
+/// the text side only — terminology patterns are never expanded — and every
+/// expanded byte keeps a map back to the original shorthand token, so match
+/// spans still point at the text the clinician typed.
+pub fn normalize_clinical_text(value: &str, field: SoapField) -> NormalizedText {
+    expand_gp_shorthand(&normalize_with_map(value), field)
+}
+
+struct ShorthandRule {
+    /// Token sequence as it appears in normalised text ("c/o" -> ["c", "o"]).
+    source: &'static [&'static str],
+    /// Replacement phrase in normalised form.
+    replacement: &'static str,
+    /// In the Objective field "FH" means fundal height or fetal heart, not
+    /// family history, so ambiguous expansions are suppressed there.
+    objective_safe: bool,
+}
+
+const SHORTHAND_RULES: &[ShorthandRule] = &[
+    ShorthandRule {
+        source: &["c", "o"],
+        replacement: "complains of",
+        objective_safe: true,
+    },
+    ShorthandRule {
+        source: &["o", "e"],
+        replacement: "on examination",
+        objective_safe: true,
+    },
+    ShorthandRule {
+        source: &["h", "o"],
+        replacement: "history of",
+        objective_safe: true,
+    },
+    ShorthandRule {
+        source: &["d", "v"],
+        replacement: "diarrhoea and vomiting",
+        objective_safe: true,
+    },
+    ShorthandRule {
+        source: &["n", "v"],
+        replacement: "nausea and vomiting",
+        objective_safe: true,
+    },
+    ShorthandRule {
+        source: &["soboe"],
+        replacement: "shortness of breath on exertion",
+        objective_safe: true,
+    },
+    ShorthandRule {
+        source: &["sob"],
+        replacement: "shortness of breath",
+        objective_safe: true,
+    },
+    ShorthandRule {
+        source: &["doe"],
+        replacement: "dyspnoea on exertion",
+        objective_safe: true,
+    },
+    ShorthandRule {
+        source: &["fhx"],
+        replacement: "family history",
+        objective_safe: true,
+    },
+    ShorthandRule {
+        source: &["fh"],
+        replacement: "family history",
+        objective_safe: false,
+    },
+    ShorthandRule {
+        source: &["pmhx"],
+        replacement: "past medical history",
+        objective_safe: true,
+    },
+    ShorthandRule {
+        source: &["pmh"],
+        replacement: "past medical history",
+        objective_safe: true,
+    },
+    ShorthandRule {
+        source: &["hx"],
+        replacement: "history",
+        objective_safe: true,
+    },
+    ShorthandRule {
+        source: &["nad"],
+        replacement: "no abnormality detected",
+        objective_safe: true,
+    },
+];
+
+fn expand_gp_shorthand(normalized: &NormalizedText, field: SoapField) -> NormalizedText {
+    let tokens = token_ranges(&normalized.text);
+    let mut out = String::with_capacity(normalized.text.len());
+    let mut starts = Vec::with_capacity(normalized.text.len());
+    let mut ends = Vec::with_capacity(normalized.text.len());
+
+    let mut index = 0;
+    while index < tokens.len() {
+        let rule = SHORTHAND_RULES
+            .iter()
+            .filter(|rule| rule.objective_safe || field != SoapField::Objective)
+            .find(|rule| {
+                rule.source.len() <= tokens.len() - index
+                    && rule.source.iter().enumerate().all(|(offset, source)| {
+                        let (start, end) = tokens[index + offset];
+                        &normalized.text[start..end] == *source
+                    })
+            });
+
+        match rule {
+            Some(rule) => {
+                let (first_start, _) = tokens[index];
+                let (_, last_end) = tokens[index + rule.source.len() - 1];
+                let original_start = normalized.byte_to_original_start[first_start];
+                let original_end = normalized.byte_to_original_end[last_end - 1];
+                push_separator(&mut out, &mut starts, &mut ends, original_start);
+                for byte in rule.replacement.bytes() {
+                    out.push(byte as char);
+                    starts.push(original_start);
+                    ends.push(original_end);
+                }
+                index += rule.source.len();
+            }
+            None => {
+                let (start, end) = tokens[index];
+                push_separator(&mut out, &mut starts, &mut ends, normalized.byte_to_original_start[start]);
+                out.push_str(&normalized.text[start..end]);
+                starts.extend_from_slice(&normalized.byte_to_original_start[start..end]);
+                ends.extend_from_slice(&normalized.byte_to_original_end[start..end]);
+                index += 1;
+            }
+        }
+    }
+
+    NormalizedText {
+        text: out,
+        byte_to_original_start: starts,
+        byte_to_original_end: ends,
+    }
+}
+
+fn push_separator(out: &mut String, starts: &mut Vec<usize>, ends: &mut Vec<usize>, original: usize) {
+    if !out.is_empty() {
+        out.push(' ');
+        starts.push(original);
+        ends.push(original);
+    }
+}
+
+fn token_ranges(text: &str) -> Vec<(usize, usize)> {
+    let mut tokens = Vec::new();
+    let mut start = None;
+    for (idx, ch) in text.char_indices() {
+        if ch == ' ' {
+            if let Some(token_start) = start.take() {
+                tokens.push((token_start, idx));
+            }
+        } else if start.is_none() {
+            start = Some(idx);
+        }
+    }
+    if let Some(token_start) = start {
+        tokens.push((token_start, text.len()));
+    }
+    tokens
+}
+
 pub fn is_normalized_word_boundary(text: &str, start: usize, end: usize) -> bool {
     let before_ok = start == 0 || text[..start].ends_with(' ');
     let after_ok = end == text.len() || text[end..].starts_with(' ');
@@ -174,6 +345,51 @@ mod tests {
         assert_eq!(
             normalize_term("-1 level and 0-5 mitoses"),
             "-1 level and 0-5 mitoses"
+        );
+    }
+
+    #[test]
+    fn expands_gp_shorthand_with_span_mapping() {
+        let source = "c/o SOB at rest";
+        let expanded = normalize_clinical_text(source, SoapField::History);
+
+        assert_eq!(
+            expanded.text,
+            "complains of shortness of breath at rest"
+        );
+
+        let start = expanded.text.find("shortness of breath").unwrap();
+        let end = start + "shortness of breath".len();
+        let (original_start, original_end) = expanded.original_range(start, end).unwrap();
+        assert_eq!(&source[original_start..original_end], "SOB");
+    }
+
+    #[test]
+    fn expands_two_token_shorthand_from_punctuated_forms() {
+        assert_eq!(
+            normalize_clinical_text("h/o D&V last week", SoapField::History).text,
+            "history of diarrhoea and vomiting last week"
+        );
+    }
+
+    #[test]
+    fn does_not_expand_fh_in_the_objective_field() {
+        assert_eq!(
+            normalize_clinical_text("FH 32cm", SoapField::Objective).text,
+            "fh 32cm"
+        );
+        assert_eq!(
+            normalize_clinical_text("FH: nil of note", SoapField::History).text,
+            "family history nil of note"
+        );
+    }
+
+    #[test]
+    fn leaves_single_letters_alone_when_not_shorthand() {
+        // "hep C or B" must not become "complains of"-style expansions.
+        assert_eq!(
+            normalize_clinical_text("hep C or B positive", SoapField::History).text,
+            "hep c or b positive"
         );
     }
 }

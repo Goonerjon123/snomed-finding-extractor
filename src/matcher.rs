@@ -1,6 +1,6 @@
 use crate::error::{ExtractorError, Result};
 use crate::model::SoapField;
-use crate::normalization::{is_normalized_word_boundary, normalize_term, normalize_with_map};
+use crate::normalization::{is_normalized_word_boundary, normalize_clinical_text, normalize_term};
 use crate::terminology::{is_blocked_common_term, TerminologyArtefact};
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder, MatchKind};
 use std::collections::{HashMap, HashSet};
@@ -190,7 +190,7 @@ impl TerminologyMatcher {
     }
 
     pub fn find_in_field(&self, field: SoapField, text: &str) -> Vec<RawMatch> {
-        let normalized = normalize_with_map(text);
+        let normalized = normalize_clinical_text(text, field);
         let mut seen = HashSet::new();
         let mut matches = Vec::new();
 
