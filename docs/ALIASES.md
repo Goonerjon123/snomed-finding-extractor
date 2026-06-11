@@ -36,3 +36,13 @@ The importer also derives safe runtime variants from those official descriptions
 Derived acronym prefixes are still safety-gated. For example, the importer can derive `URTI` from a base description such as `URTI - Infection of the upper respiratory tract`, but it will not derive the bare acronym from a more specific description such as `URTI - Viral upper respiratory tract infection`, because that would silently add a viral qualifier that the clinician did not type.
 
 Observable labels have an extra safety gate. Short labels such as `P` from `Pulse rate` or `T` from `BT - Body temperature` are accepted only when followed by a numeric value, and ordinary prose remains subject to the normal ambiguity checks.
+
+## Runtime Shorthand Expansion
+
+Some UK general-practice shorthand is expanded by the engine itself before matching, so it does not depend on an alias file or a particular terminology description being present:
+
+`c/o`, `o/e`, `h/o`, `d&v`, `n&v`, `sob`, `soboe`, `doe`, `fh`/`fhx`, `pmh`/`pmhx`, `hx`, `nad`.
+
+Expansion runs on the SOAP text only — terminology patterns are never expanded — and every expanded byte keeps a map back to the original shorthand, so a match's reported span still points at the characters the clinician typed. Expansion also feeds the assertion engine: `fhx diabetes` becomes a family-history frame, and `h/o depression` a historical one. `fh` is left unexpanded in the Objective field, where it denotes fundal height or fetal heart rather than family history.
+
+Alias files remain the route for locally governed term synonyms; runtime expansion only covers field-structuring shorthand that is stable across GP practice.

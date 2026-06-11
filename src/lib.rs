@@ -25,4 +25,4 @@ pub use crate::model::{
 pub use crate::terminology::{AliasSet, TerminologyArtefact};
 
 pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RULESET_VERSION: &str = "ruleset-2026-06-09-v4";
+pub const RULESET_VERSION: &str = "ruleset-2026-06-12-v5";

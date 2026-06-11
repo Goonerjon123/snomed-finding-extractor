@@ -170,7 +170,7 @@ The diagnosis endpoint deliberately accepts only the `assessment` field. It retu
       "span_end": 37,
       "matched_text": "short of breath",
       "normalized_match": "short of breath",
-      "confidence": 0.92,
+      "term_source": "clinical_alias:gp-breathlessness-v1",
       "rule_ids": ["ASSERT_AFFIRMED_PATIENT_FINDING"],
       "explanation": "Accepted as an affirmed patient finding in the history field; no suppression rule fired."
     }
@@ -186,7 +186,7 @@ The diagnosis endpoint deliberately accepts only the `assessment` field. It retu
       "normalized_match": "shortness of breath on exertion",
       "assertion": "planned",
       "rule_ids": ["PLAN_FIELD_REVIEW_ONLY", "CTX_PLANNED_ACTION"],
-      "explanation": "Suppressed: plan field mentions are review-only unless a future ruleset explicitly permits them; the mention is part of a planned action rather than an asserted concept."
+      "explanation": "Suppressed: plan field mentions are review-only unless a completed action asserts them; the mention is the target of a planned action rather than an asserted concept."
     }
   ],
   "terminology_version": "http://snomed.info/sct/999000031000000106/version/20260201",

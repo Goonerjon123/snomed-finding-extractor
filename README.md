@@ -6,18 +6,19 @@ This repository is intended to become a standalone component inside a larger EPR
 
 ## Current Status
 
-This is a v0.1 implementation scaffold with:
+This is a v0.2 implementation with:
 
 - Rust extraction core.
-- CLI for building terminology artefacts and extracting from SOAP JSON.
+- CLI for building terminology artefacts, extracting from SOAP JSON, and auditing dropped ambiguous terms.
 - Optional local HTTP API sidecar.
 - openEHR value set importer for the supplied symptoms value set manifest.
-- Objective-only observable entity extraction from a separate observations value set manifest.
+- Objective-only observable entity extraction from a separate observations value set manifest, with value/unit capture for openEHR quantities.
 - Objective-only examination finding extraction from a separate examination findings value set manifest.
 - Assessment-only diagnosis/disorder extraction from a separate disorders value set manifest.
 - RF2 snapshot/refset importer for future full SNOMED synonym enrichment.
+- Runtime UK GP shorthand expansion (`c/o`, `o/e`, `h/o`, `d&v`, `sob`, `fhx`, ...) with span-preserving maps.
 - Terminology-derived variants for safe shorthand, including official acronym prefixes, simple diabetes mellitus phrases, morphology variants, flexible body-site sign phrases, examination phrases such as `X on auscultation`, and numeric-only observable labels.
-- Deterministic matcher and assertion rules.
+- Deterministic matcher and a clause-scoped assertion engine.
 - Synthetic corpus generation and evaluation harness.
 - Safety, validation, terminology, and regulatory documentation templates.
 
@@ -27,8 +28,10 @@ The engine is deliberately conservative:
 
 - only extracts concepts present in the loaded artefact/refset;
 - suppresses negated, uncertain, family-history, non-patient, historical/resolved, conditional, hypothetical, and planned mentions;
-- treats the Plan field as review-only/suppressed by default;
-- returns span-level evidence and rule IDs for every accepted or suppressed match;
+- scopes each context cue to the match through bounded, clause-level token analysis, so a cue suppresses only the findings it actually governs (`no fever, has cough` keeps cough; `no cough or wheeze` suppresses both) rather than every concept in the sentence;
+- treats the Plan field as review-only by default, with a tightly-scoped completed-action override (`started X for Y` asserts Y);
+- returns span-level evidence, the firing rule IDs, and term provenance for every accepted or suppressed match;
+- surfaces terms dropped by the ambiguity guard for terminology review instead of dropping them silently;
 - logs no raw patient text by default.
 
 ## Build A Terminology Artefact
