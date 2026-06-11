@@ -1,6 +1,8 @@
 use crate::error::{ExtractorError, Result};
-use crate::model::SoapField;
-use crate::normalization::{is_normalized_word_boundary, normalize_clinical_text, normalize_term};
+use crate::model::{MeasuredValue, SoapField};
+use crate::normalization::{
+    is_normalized_word_boundary, normalize_clinical_text, normalize_term, NormalizedText,
+};
 use crate::terminology::{is_blocked_common_term, TerminologyArtefact};
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder, MatchKind};
 use std::collections::{HashMap, HashSet};
@@ -15,6 +17,7 @@ pub struct RawMatch {
     pub matched_text: String,
     pub normalized_match: String,
     pub pattern_source: String,
+    pub value: Option<MeasuredValue>,
 }
 
 #[derive(Debug, Clone)]
@@ -189,8 +192,18 @@ impl TerminologyMatcher {
         })
     }
 
-    pub fn find_in_field(&self, field: SoapField, text: &str) -> Vec<RawMatch> {
+    /// Finds terminology matches in one SOAP field. When `capture_values` is
+    /// set (the observables extraction), each match also captures the numeric
+    /// value and unit that follow it, so the EPR can fill an openEHR quantity
+    /// without re-parsing the note.
+    pub fn find_in_field(
+        &self,
+        field: SoapField,
+        text: &str,
+        capture_values: bool,
+    ) -> Vec<RawMatch> {
         let normalized = normalize_clinical_text(text, field);
+        let tokens = normalized_tokens(&normalized.text);
         let mut seen = HashSet::new();
         let mut matches = Vec::new();
 
@@ -206,9 +219,14 @@ impl TerminologyMatcher {
             };
 
             let meta = &self.patterns[found.pattern().as_usize()];
-            if meta.requires_numeric_value
-                && !has_numeric_value_after(&normalized.text, found.end())
-            {
+            // Short numeric labels (T, P, ...) only match when a value follows;
+            // observable matches additionally capture the value for the EPR.
+            let value = if capture_values || meta.requires_numeric_value {
+                capture_value_after(&normalized, text, &tokens, found.end())
+            } else {
+                None
+            };
+            if meta.requires_numeric_value && value.is_none() {
                 continue;
             }
             let key = (meta.concept_id.as_str(), span_start, span_end);
@@ -225,10 +243,10 @@ impl TerminologyMatcher {
                 matched_text: text[span_start..span_end].to_string(),
                 normalized_match: meta.pattern.clone(),
                 pattern_source: meta.source.clone(),
+                value,
             });
         }
 
-        let tokens = normalized_tokens(&normalized.text);
         for (token_index, token) in tokens.iter().enumerate() {
             for key in [token.text.to_string(), singular_token(token.text)] {
                 let Some(pattern_indices) = self.flexible_by_first_token.get(&key) else {
@@ -260,6 +278,7 @@ impl TerminologyMatcher {
                         matched_text: text[span_start..span_end].to_string(),
                         normalized_match: meta.pattern.clone(),
                         pattern_source: meta.source.clone(),
+                        value: None,
                     });
                 }
             }
@@ -269,13 +288,135 @@ impl TerminologyMatcher {
     }
 }
 
-fn has_numeric_value_after(normalized_text: &str, pattern_end: usize) -> bool {
-    normalized_text[pattern_end..]
-        .trim_start()
-        .chars()
-        .next()
-        .map(|ch| ch.is_ascii_digit() || ch == '-' || ch == '+')
-        .unwrap_or(false)
+/// Filler words tolerated between a numeric label and its value, so
+/// "BP today 128/82" and "BP of 128/82" capture 128/82 just like "BP 128/82".
+const VALUE_FILLER: &[&str] = &[
+    "today",
+    "of",
+    "is",
+    "was",
+    "now",
+    "at",
+    "currently",
+    "measured",
+    "recorded",
+    "reading",
+    "the",
+    "this",
+    "morning",
+    "around",
+    "approximately",
+    "approx",
+];
+
+/// Unit tokens accepted immediately after a captured value. Restrictive on
+/// purpose: anything not here (e.g. "on" in "98 on air") yields no unit rather
+/// than a wrong one.
+const KNOWN_UNITS: &[&str] = &[
+    "%",
+    "mmhg",
+    "kg",
+    "g",
+    "lb",
+    "lbs",
+    "st",
+    "cm",
+    "mm",
+    "m",
+    "bpm",
+    "c",
+    "f",
+    "celsius",
+    "fahrenheit",
+    "kpa",
+    "mg",
+    "mcg",
+    "ml",
+    "l",
+    "mmol",
+    "min",
+    "kg/m2",
+];
+
+/// Captures the value (and unit, if any) following a numeric label, tolerating
+/// a bounded run of filler words. Returns spans in the original text.
+fn capture_value_after(
+    normalized: &NormalizedText,
+    text: &str,
+    tokens: &[NormalizedToken<'_>],
+    pattern_end: usize,
+) -> Option<MeasuredValue> {
+    let start_index = tokens.iter().position(|token| token.start >= pattern_end)?;
+
+    for (offset, token) in tokens[start_index..].iter().enumerate() {
+        if is_value_token(token.text) {
+            let (value_start, value_end) = normalized.original_range(token.start, token.end)?;
+            let (unit, span_end) = capture_unit_after(text, value_end);
+            return Some(MeasuredValue {
+                text: text[value_start..value_end].to_string(),
+                unit,
+                span_start: value_start,
+                span_end,
+            });
+        }
+
+        // Tolerate at most three filler words ("today", "of", ...) before the
+        // value; anything else means no value belongs to this label.
+        if offset >= 3 || !VALUE_FILLER.contains(&token.text) {
+            return None;
+        }
+    }
+
+    None
+}
+
+fn is_value_token(token: &str) -> bool {
+    matches!(token.chars().next(), Some(ch) if ch.is_ascii_digit() || ch == '-' || ch == '+')
+}
+
+/// Reads a unit from the original text directly after a captured value,
+/// allowing a single optional space and an optional degree sign before a
+/// known unit token. Returns the unit (as typed) and the end of the value+unit
+/// span; when no known unit follows, the span ends at the value.
+fn capture_unit_after(text: &str, value_end: usize) -> (Option<String>, usize) {
+    let rest = &text[value_end..];
+    let space = rest.len() - rest.trim_start_matches(' ').len();
+    // Only a single separating space is allowed before a unit.
+    if space > 1 {
+        return (None, value_end);
+    }
+    let after_space = &rest[space..];
+
+    if let Some(stripped) = after_space.strip_prefix('%') {
+        let _ = stripped;
+        return (Some("%".to_string()), value_end + space + 1);
+    }
+
+    let degree = if after_space.starts_with('\u{b0}') {
+        '\u{b0}'.len_utf8()
+    } else {
+        0
+    };
+    let unit_region = &after_space[degree..];
+    let unit_len = unit_region
+        .char_indices()
+        .take_while(|(_, ch)| ch.is_ascii_alphabetic() || *ch == '/' || ch.is_ascii_digit())
+        .map(|(idx, ch)| idx + ch.len_utf8())
+        .last()
+        .unwrap_or(0);
+    if unit_len == 0 {
+        return (None, value_end);
+    }
+
+    let raw_unit = &unit_region[..unit_len];
+    if KNOWN_UNITS.contains(&raw_unit.to_ascii_lowercase().as_str()) {
+        (
+            Some(raw_unit.to_string()),
+            value_end + space + degree + unit_len,
+        )
+    } else {
+        (None, value_end)
+    }
 }
 
 fn flexible_body_site_pattern_tokens(pattern: &str) -> Option<Vec<String>> {
@@ -444,7 +585,7 @@ mod tests {
     #[test]
     fn finds_longest_normalized_span() {
         let matcher = TerminologyMatcher::new(&artefact()).unwrap();
-        let matches = matcher.find_in_field(SoapField::Assessment, "CHEST-pain present");
+        let matches = matcher.find_in_field(SoapField::Assessment, "CHEST-pain present", false);
 
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].matched_text, "CHEST-pain");
@@ -483,11 +624,11 @@ mod tests {
         let matcher = TerminologyMatcher::new(&artefact).unwrap();
 
         assert!(matcher
-            .find_in_field(SoapField::History, "chest pain")
+            .find_in_field(SoapField::History, "chest pain", false)
             .is_empty());
         assert_eq!(
             matcher
-                .find_in_field(SoapField::History, "unique symptom")
+                .find_in_field(SoapField::History, "unique symptom", false)
                 .len(),
             1
         );
@@ -533,7 +674,7 @@ mod tests {
         };
 
         let matcher = TerminologyMatcher::new(&artefact).unwrap();
-        let matches = matcher.find_in_field(SoapField::History, "Cough for 3 months");
+        let matches = matcher.find_in_field(SoapField::History, "Cough for 3 months", false);
 
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].concept_id, "49727002");

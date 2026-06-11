@@ -56,6 +56,60 @@ fn extracts_observable_entities_from_objective_only_payload() {
     assert!(suppressed
         .iter()
         .any(|item| item.0 == "2000000005" && item.1 == SoapField::Objective && item.2 == "temp"));
+
+    // The captured value/unit lets the EPR fill an openEHR quantity without
+    // re-parsing the note.
+    let bp = response
+        .matches
+        .iter()
+        .find(|item| item.concept_id == "2000000001")
+        .expect("BP match present");
+    let value = bp.value.as_ref().expect("BP value captured");
+    assert_eq!(value.text, "128/82");
+    assert_eq!(bp.matched_text, "BP");
+
+    let sats = response
+        .matches
+        .iter()
+        .find(|item| item.concept_id == "2000000004")
+        .expect("Sats match present");
+    let sats_value = sats.value.as_ref().expect("Sats value captured");
+    assert_eq!(sats_value.text, "98");
+    assert_eq!(sats_value.unit.as_deref(), Some("%"));
+}
+
+#[test]
+fn captures_values_through_filler_words() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("fixtures")
+        .join("synthetic-observables.openehr-valueset.json");
+    let artefact = build_from_openehr_valueset(path).unwrap();
+    let extractor = Extractor::new(artefact).unwrap();
+
+    let response = extractor
+        .extract_observables(ObservableExtractRequest {
+            note_id: Some("obs-filler".to_string()),
+            objective: "BP today 148/92. HR of 88 bpm.".to_string(),
+            include_suppressed: false,
+            refset_id: Some("785380551000001102".to_string()),
+        })
+        .unwrap();
+
+    let bp = response
+        .matches
+        .iter()
+        .find(|item| item.concept_id == "2000000001")
+        .expect("BP match present despite filler word");
+    assert_eq!(bp.value.as_ref().unwrap().text, "148/92");
+
+    let hr = response
+        .matches
+        .iter()
+        .find(|item| item.concept_id == "2000000002")
+        .expect("HR match present");
+    let hr_value = hr.value.as_ref().unwrap();
+    assert_eq!(hr_value.text, "88");
+    assert_eq!(hr_value.unit.as_deref(), Some("bpm"));
 }
 
 #[test]

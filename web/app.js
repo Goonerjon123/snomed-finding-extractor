@@ -21,10 +21,10 @@ const fields = {
 };
 
 const sample = {
-  history: "No chest pain. Has cough but denies asthma. Father had diabetes.",
-  objective: "Temperature normal. Respiratory rate 18.",
-  assessment: "Chest pain.",
-  plan: "Screen for depression. Safety net if chest pain worsens."
+  history: "c/o cough and SOB for 3 days. No fever, has cough. Father has diabetes.",
+  objective: "BP today 148/92. HR 88 bpm. Sats 97% on air. Temp 37.8C.",
+  assessment: "Likely LRTI. ?asthma.",
+  plan: "Started amoxicillin for the LRTI. Screen for depression. Review in 2 weeks."
 };
 
 sampleButton.addEventListener("click", () => {
@@ -90,19 +90,19 @@ function render(payload) {
   const matches = payload.matches || [];
   const suppressed = payload.suppressed || [];
 
-  renderRows(matchesBody, matches, renderMatchRow, "No matches");
-  renderRows(suppressedBody, suppressed, renderSuppressedRow, "No suppressed matches");
+  renderRows(matchesBody, matches, renderMatchRow, "No matches", 6);
+  renderRows(suppressedBody, suppressed, renderSuppressedRow, "No suppressed matches", 5);
   setMetrics(matches.length, suppressed.length, payload.elapsed_micros || 0);
   rawJson.textContent = JSON.stringify(payload, null, 2);
 }
 
-function renderRows(body, rows, renderer, emptyText) {
+function renderRows(body, rows, renderer, emptyText, colSpan) {
   body.replaceChildren();
   if (!rows.length) {
     const row = document.createElement("tr");
     const cell = document.createElement("td");
     cell.className = "empty";
-    cell.colSpan = 5;
+    cell.colSpan = colSpan || 5;
     cell.textContent = emptyText;
     row.append(cell);
     body.append(row);
@@ -120,8 +120,22 @@ function renderMatchRow(item) {
   addCell(row, item.concept_id);
   addCell(row, item.preferred_term);
   addCell(row, item.matched_text, "matched");
+  addValueCell(row, item.value);
   addEvidenceCell(row, item);
   return row;
+}
+
+function addValueCell(row, value) {
+  const cell = document.createElement("td");
+  if (value) {
+    const span = document.createElement("span");
+    span.className = "matched";
+    span.textContent = value.unit ? `${value.text} ${value.unit}` : value.text;
+    cell.append(span);
+  } else {
+    cell.textContent = "";
+  }
+  row.append(cell);
 }
 
 function renderSuppressedRow(item) {
@@ -154,7 +168,11 @@ function addEvidenceCell(row, item) {
   evidence.textContent = item.explanation || "";
   const rules = document.createElement("span");
   rules.className = "rules";
-  rules.textContent = (item.rule_ids || []).join(", ");
+  const parts = (item.rule_ids || []).slice();
+  if (item.term_source) {
+    parts.push(`term: ${item.term_source}`);
+  }
+  rules.textContent = parts.join(", ");
   cell.append(evidence, rules);
   row.append(cell);
 }

@@ -70,7 +70,8 @@ impl Extractor {
                 continue;
             }
 
-            let raw_matches = self.matcher.find_in_field(field, text);
+            let capture_values = matches!(extraction_kind, ExtractionKind::Observable);
+            let raw_matches = self.matcher.find_in_field(field, text, capture_values);
             let spans = raw_matches
                 .iter()
                 .map(|raw| (raw.span_start, raw.span_end))
@@ -199,7 +200,8 @@ fn to_finding_match(raw: RawMatch, rule_ids: Vec<String>, explanation: String) -
         span_end: raw.span_end,
         matched_text: raw.matched_text,
         normalized_match: raw.normalized_match,
-        confidence: deterministic_confidence(raw.field),
+        term_source: raw.pattern_source,
+        value: raw.value,
         rule_ids,
         explanation,
     }
@@ -222,14 +224,5 @@ fn to_suppressed_match(
         assertion,
         rule_ids,
         explanation,
-    }
-}
-
-fn deterministic_confidence(field: SoapField) -> f32 {
-    match field {
-        SoapField::Assessment => 0.97,
-        SoapField::Objective => 0.94,
-        SoapField::History => 0.92,
-        SoapField::Plan => 0.80,
     }
 }

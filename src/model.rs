@@ -142,9 +142,31 @@ pub struct FindingMatch {
     pub span_end: usize,
     pub matched_text: String,
     pub normalized_match: String,
-    pub confidence: f32,
+    /// How this term entered the artefact (e.g. "preferred_term",
+    /// "openehr-description-acronym", "clinical_alias:...", "built-in-observable-alias").
+    /// Replaces the former fixed `confidence` score, which was not a probability.
+    pub term_source: String,
+    /// Numeric value and unit captured immediately after an observable/numeric
+    /// match ("BP 128/82" -> value "128/82"), so the EPR can populate an
+    /// openEHR DV_QUANTITY without re-parsing the note. None for non-numeric
+    /// matches or when no value follows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<MeasuredValue>,
     pub rule_ids: Vec<String>,
     pub explanation: String,
+}
+
+/// A measurement value captured from the text after a numeric match.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MeasuredValue {
+    /// Raw value text as typed, e.g. "128/82", "37.8", "98".
+    pub text: String,
+    /// Unit token if one immediately follows the value, e.g. "%", "kg", "mmHg".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+    /// Original-text span of the captured value (and unit when present).
+    pub span_start: usize,
+    pub span_end: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
