@@ -2,7 +2,7 @@
 
 | ID | Hazard | Cause | Harm | Initial Severity | Controls | Residual Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| H-001 | Negated finding is proposed as positive | Negation scope failure | Incorrect coded problem list or downstream decision support | High | Clause-scoped negation binding (bounded gap allow-list, contrast breakers, coordinated-sibling propagation), regression corpus, clinician confirmation | Open |
+| H-001 | Negated finding is proposed as positive | Negation scope failure or missed coordinated phrase member | Incorrect coded problem list or downstream decision support | High | Clause-scoped negation binding (bounded gap allow-list, contrast breakers, coordinated-sibling propagation), coordinated shared-head matching before assertion classification, regression corpus, clinician confirmation | Open |
 | H-002 | Family-history finding is proposed as patient finding | Experiencer detection failure | Incorrect patient diagnosis | High | Experiencer binding through possessive connectors before/after the match (social and reporting mentions excluded), regression corpus, clinician confirmation | Open |
 | H-003 | Planned screening/test target is proposed as current finding | Plan field or action cue failure | Incorrect morbidity coding | High | Plan field suppressed by default; completed-action override scoped to nearest cue with advice-style blockers; planned-action rules; regression corpus | Open |
 | H-004 | Ambiguous abbreviation is matched incorrectly | Common acronym overlap | Incorrect code suggestion | Medium | Ambiguous term blocklist, explicit allow flag, acronym specificity guard | Open |

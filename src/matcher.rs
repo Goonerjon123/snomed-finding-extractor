@@ -59,6 +59,13 @@ struct FlexiblePatternMeta {
     pattern: String,
     source: String,
     tokens: Vec<String>,
+    kind: FlexiblePatternKind,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum FlexiblePatternKind {
+    BodySite,
+    CoordinatedSharedHead,
 }
 
 #[derive(Debug, Clone)]
@@ -66,6 +73,8 @@ struct NormalizedToken<'a> {
     text: &'a str,
     start: usize,
     end: usize,
+    original_start: usize,
+    original_end: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -175,26 +184,24 @@ impl TerminologyMatcher {
 
             if !candidate.requires_numeric_value {
                 if let Some(tokens) = flexible_body_site_pattern_tokens(&candidate.pattern) {
-                    let first_token = tokens[0].clone();
-                    let flexible_index = flexible_patterns.len();
-                    flexible_patterns.push(FlexiblePatternMeta {
-                        concept_id: candidate.concept_id,
-                        preferred_term: candidate.preferred_term,
-                        pattern: candidate.pattern,
-                        source: format!("{}:flexible-body-site", candidate.source),
+                    push_flexible_pattern(
+                        &mut flexible_patterns,
+                        &mut flexible_by_first_token,
+                        &candidate,
                         tokens,
-                    });
-                    flexible_by_first_token
-                        .entry(first_token.clone())
-                        .or_default()
-                        .push(flexible_index);
-                    let singular_first = singular_token(&first_token);
-                    if singular_first != first_token {
-                        flexible_by_first_token
-                            .entry(singular_first)
-                            .or_default()
-                            .push(flexible_index);
-                    }
+                        "flexible-body-site",
+                        FlexiblePatternKind::BodySite,
+                    );
+                }
+                if let Some(tokens) = coordinated_shared_head_pattern_tokens(&candidate.pattern) {
+                    push_flexible_pattern(
+                        &mut flexible_patterns,
+                        &mut flexible_by_first_token,
+                        &candidate,
+                        tokens,
+                        "coordinated-shared-head",
+                        FlexiblePatternKind::CoordinatedSharedHead,
+                    );
                 }
             }
         }
@@ -239,7 +246,7 @@ impl TerminologyMatcher {
         capture_values: bool,
     ) -> Vec<RawMatch> {
         let normalized = normalize_clinical_text(text, field);
-        let tokens = normalized_tokens(&normalized.text);
+        let tokens = normalized_tokens(&normalized);
         let mut seen = HashSet::new();
         let mut matches = Vec::new();
 
@@ -291,9 +298,20 @@ impl TerminologyMatcher {
 
                 for pattern_index in pattern_indices {
                     let meta = &self.flexible_patterns[*pattern_index];
-                    let Some((start, end)) =
-                        find_flexible_body_site_match(&tokens, token_index, &meta.tokens)
-                    else {
+                    let matched_range = match meta.kind {
+                        FlexiblePatternKind::BodySite => {
+                            find_flexible_body_site_match(&tokens, token_index, &meta.tokens)
+                        }
+                        FlexiblePatternKind::CoordinatedSharedHead => {
+                            find_coordinated_shared_head_match(
+                                text,
+                                &tokens,
+                                token_index,
+                                &meta.tokens,
+                            )
+                        }
+                    };
+                    let Some((start, end)) = matched_range else {
                         continue;
                     };
                     let Some((span_start, span_end)) = normalized.original_range(start, end) else {
@@ -455,6 +473,37 @@ fn capture_unit_after(text: &str, value_end: usize) -> (Option<String>, usize) {
     }
 }
 
+fn push_flexible_pattern(
+    flexible_patterns: &mut Vec<FlexiblePatternMeta>,
+    flexible_by_first_token: &mut HashMap<String, Vec<usize>>,
+    candidate: &PatternCandidate,
+    tokens: Vec<String>,
+    source_suffix: &'static str,
+    kind: FlexiblePatternKind,
+) {
+    let first_token = tokens[0].clone();
+    let flexible_index = flexible_patterns.len();
+    flexible_patterns.push(FlexiblePatternMeta {
+        concept_id: candidate.concept_id.clone(),
+        preferred_term: candidate.preferred_term.clone(),
+        pattern: candidate.pattern.clone(),
+        source: format!("{}:{source_suffix}", candidate.source),
+        tokens,
+        kind,
+    });
+    flexible_by_first_token
+        .entry(first_token.clone())
+        .or_default()
+        .push(flexible_index);
+    let singular_first = singular_token(&first_token);
+    if singular_first != first_token {
+        flexible_by_first_token
+            .entry(singular_first)
+            .or_default()
+            .push(flexible_index);
+    }
+}
+
 fn flexible_body_site_pattern_tokens(pattern: &str) -> Option<Vec<String>> {
     let tokens = pattern
         .split(' ')
@@ -471,6 +520,25 @@ fn flexible_body_site_pattern_tokens(pattern: &str) -> Option<Vec<String>> {
         .iter()
         .position(|token| flexible_body_site_preposition(token))?;
     if preposition_index == 0 || preposition_index + 1 >= tokens.len() {
+        return None;
+    }
+
+    Some(tokens)
+}
+
+fn coordinated_shared_head_pattern_tokens(pattern: &str) -> Option<Vec<String>> {
+    let tokens = pattern
+        .split(' ')
+        .filter(|token| !token.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if tokens.len() != 2 {
+        return None;
+    }
+    if weak_flexible_start(tokens[0].as_str()) || tokens[0].chars().count() < 4 {
+        return None;
+    }
+    if tokens[1].chars().count() < 4 {
         return None;
     }
 
@@ -497,16 +565,22 @@ fn flexible_body_site_preposition(token: &str) -> bool {
     matches!(token, "of" | "on" | "from" | "over" | "in")
 }
 
-fn normalized_tokens(text: &str) -> Vec<NormalizedToken<'_>> {
+fn normalized_tokens(normalized: &NormalizedText) -> Vec<NormalizedToken<'_>> {
+    let text = normalized.text.as_str();
     let mut tokens = Vec::new();
     let mut token_start = None;
     for (idx, ch) in text.char_indices() {
         if ch == ' ' {
             if let Some(start) = token_start.take() {
+                let (original_start, original_end) = normalized
+                    .original_range(start, idx)
+                    .unwrap_or((start, idx));
                 tokens.push(NormalizedToken {
                     text: &text[start..idx],
                     start,
                     end: idx,
+                    original_start,
+                    original_end,
                 });
             }
         } else if token_start.is_none() {
@@ -514,10 +588,15 @@ fn normalized_tokens(text: &str) -> Vec<NormalizedToken<'_>> {
         }
     }
     if let Some(start) = token_start {
+        let (original_start, original_end) = normalized
+            .original_range(start, text.len())
+            .unwrap_or((start, text.len()));
         tokens.push(NormalizedToken {
             text: &text[start..],
             start,
             end: text.len(),
+            original_start,
+            original_end,
         });
     }
 
@@ -564,6 +643,62 @@ fn find_flexible_body_site_match(
     }
 
     Some((tokens[start_index].start, tokens[end_index].end))
+}
+
+fn find_coordinated_shared_head_match(
+    original_text: &str,
+    tokens: &[NormalizedToken<'_>],
+    start_index: usize,
+    pattern_tokens: &[String],
+) -> Option<(usize, usize)> {
+    const MAX_EXTRA_TOKENS: usize = 2;
+
+    if pattern_tokens.len() != 2
+        || !token_matches(&pattern_tokens[0], tokens.get(start_index)?.text)
+    {
+        return None;
+    }
+
+    let search_from = start_index + 1;
+    let search_limit = (search_from + MAX_EXTRA_TOKENS + 1).min(tokens.len());
+    for (candidate_index, candidate_token) in tokens
+        .iter()
+        .enumerate()
+        .take(search_limit)
+        .skip(search_from)
+    {
+        if !token_matches(&pattern_tokens[1], candidate_token.text) {
+            continue;
+        }
+
+        let skipped = candidate_index.saturating_sub(search_from);
+        if skipped == 0 {
+            continue;
+        }
+        if !has_original_coordinator_between(
+            original_text,
+            tokens[start_index].original_end,
+            candidate_token.original_start,
+        ) {
+            continue;
+        }
+
+        return Some((tokens[start_index].start, candidate_token.end));
+    }
+
+    None
+}
+
+fn has_original_coordinator_between(original_text: &str, start: usize, end: usize) -> bool {
+    if start >= end || end > original_text.len() {
+        return false;
+    }
+    let gap = original_text[start..end].to_ascii_lowercase();
+    gap.contains('/')
+        || gap.contains(',')
+        || gap
+            .split(|ch: char| !ch.is_ascii_alphanumeric())
+            .any(|word| matches!(word, "and" | "or"))
 }
 
 fn token_matches(pattern_token: &str, text_token: &str) -> bool {

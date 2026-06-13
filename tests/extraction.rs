@@ -1,5 +1,6 @@
+use snomed_finding_extractor::terminology::{ConceptEntry, TermVariant};
 use snomed_finding_extractor::{
-    AliasSet, ExtractRequest, Extractor, SoapField, TerminologyArtefact,
+    AliasSet, AssertionStatus, ExtractRequest, Extractor, SoapField, TerminologyArtefact,
 };
 use std::path::PathBuf;
 
@@ -28,6 +29,46 @@ fn extractor_with_aliases() -> Extractor {
         .apply_aliases(AliasSet::from_path(alias_path("tiny-gp-aliases.json")).unwrap())
         .unwrap();
     Extractor::new(artefact).unwrap()
+}
+
+fn extractor_with_generic_shared_head_terms() -> Extractor {
+    Extractor::new(TerminologyArtefact {
+        schema_version: 1,
+        terminology_version: "fixture-shared-head".to_string(),
+        source_release: "fixture".to_string(),
+        refset_id: "fixture-shared-head".to_string(),
+        generated_at_utc: "fixture".to_string(),
+        concepts: vec![
+            ConceptEntry {
+                concept_id: "generic-1".to_string(),
+                active: true,
+                preferred_term: "Alpha marker".to_string(),
+                descriptions: vec![],
+                variants: vec![TermVariant {
+                    text: "alpha marker".to_string(),
+                    source: "fixture".to_string(),
+                    description_id: None,
+                    allow_ambiguous: false,
+                    requires_numeric_value: false,
+                }],
+            },
+            ConceptEntry {
+                concept_id: "generic-2".to_string(),
+                active: true,
+                preferred_term: "Beta marker".to_string(),
+                descriptions: vec![],
+                variants: vec![TermVariant {
+                    text: "beta marker".to_string(),
+                    source: "fixture".to_string(),
+                    description_id: None,
+                    allow_ambiguous: false,
+                    requires_numeric_value: false,
+                }],
+            },
+        ],
+        artefact_hash: String::new(),
+    })
+    .unwrap()
 }
 
 #[test]
@@ -159,4 +200,39 @@ fn extracts_gp_breathlessness_aliases() {
     assert!(positives.contains(&("1000000006", "short of breath")));
     assert!(positives.contains(&("1000000007", "SOBOE")));
     assert!(suppressed.contains(&("1000000006", "SOB")));
+}
+
+#[test]
+fn suppresses_coordinated_shared_head_findings_under_negation() {
+    let extractor = extractor_with_generic_shared_head_terms();
+    let response = extractor
+        .extract(ExtractRequest {
+            history: "No alpha/beta marker. Alpha marker later present.".to_string(),
+            include_suppressed: true,
+            refset_id: Some("fixture-shared-head".to_string()),
+            ..ExtractRequest::default()
+        })
+        .unwrap();
+
+    let positives = response
+        .matches
+        .iter()
+        .map(|item| (item.concept_id.as_str(), item.matched_text.as_str()))
+        .collect::<Vec<_>>();
+    let suppressed = response
+        .suppressed
+        .iter()
+        .map(|item| {
+            (
+                item.concept_id.as_str(),
+                item.matched_text.as_str(),
+                item.assertion,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert!(positives.contains(&("generic-1", "Alpha marker")));
+    assert!(!positives.iter().any(|item| matches!(item.0, "generic-2")));
+    assert!(suppressed.contains(&("generic-1", "alpha/beta marker", AssertionStatus::Negated)));
+    assert!(suppressed.contains(&("generic-2", "beta marker", AssertionStatus::Negated)));
 }
