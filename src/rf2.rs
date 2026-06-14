@@ -520,7 +520,8 @@ fn derive_description_variants(term: &str) -> Vec<DerivedVariant> {
 }
 
 fn push_observable_entity_aliases(variants: &mut Vec<TermVariant>, preferred_term: &str) {
-    let aliases: &[(&str, bool)] = match normalize_term(preferred_term).as_str() {
+    let normalized_preferred = normalize_term(preferred_term);
+    let aliases: &[(&str, bool)] = match normalized_preferred.as_str() {
         "blood pressure" => &[("BP", true)],
         "heart rate" => &[("HR", true)],
         "pulse rate" => &[("PR", true)],
@@ -547,6 +548,12 @@ fn push_observable_entity_aliases(variants: &mut Vec<TermVariant>, preferred_ter
             None,
             *allow_ambiguous,
         );
+    }
+
+    if normalized_preferred == "body temperature" {
+        for alias in ["afeb", "afebrile", "apyrexial"] {
+            push_numeric_value_variant(variants, alias, "built-in-observable-numeric-alias", None);
+        }
     }
 }
 
