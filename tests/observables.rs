@@ -113,6 +113,62 @@ fn captures_values_through_filler_words() {
 }
 
 #[test]
+fn captures_values_from_compact_gp_copd_objective_vitals() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("fixtures")
+        .join("synthetic-observables.openehr-valueset.json");
+    let artefact = build_from_openehr_valueset(path).unwrap();
+    let extractor = Extractor::new(artefact).unwrap();
+
+    let response = extractor
+        .extract_observables(ObservableExtractRequest {
+            note_id: Some("obs-copd".to_string()),
+            objective: "Mildly SOB at rest, talking in full sentences. Sats 93% RA (baseline 94%), RR 22, afeb 37.2, HR 92. Chest: widespread wheeze + coarse creps R base."
+                .to_string(),
+            include_suppressed: true,
+            refset_id: Some("785380551000001102".to_string()),
+        })
+        .unwrap();
+
+    let sats = response
+        .matches
+        .iter()
+        .find(|item| item.concept_id == "2000000004")
+        .expect("oxygen saturation match present");
+    assert_eq!(sats.matched_text, "Sats");
+    let sats_value = sats.value.as_ref().expect("Sats value captured");
+    assert_eq!(sats_value.text, "93");
+    assert_eq!(sats_value.unit.as_deref(), Some("%"));
+
+    let rr = response
+        .matches
+        .iter()
+        .find(|item| item.concept_id == "2000000003")
+        .expect("respiratory rate match present");
+    assert_eq!(rr.matched_text, "RR");
+    assert_eq!(rr.value.as_ref().expect("RR value captured").text, "22");
+
+    let temp = response
+        .matches
+        .iter()
+        .find(|item| item.concept_id == "2000000005")
+        .expect("afebrile temperature match present");
+    assert_eq!(temp.matched_text, "afeb");
+    assert_eq!(
+        temp.value.as_ref().expect("afeb value captured").text,
+        "37.2"
+    );
+
+    let hr = response
+        .matches
+        .iter()
+        .find(|item| item.concept_id == "2000000002")
+        .expect("heart rate match present");
+    assert_eq!(hr.matched_text, "HR");
+    assert_eq!(hr.value.as_ref().expect("HR value captured").text, "92");
+}
+
+#[test]
 fn observable_request_ignores_non_objective_soap_fields() {
     let request: snomed_finding_extractor::ExtractRequest = ObservableExtractRequest {
         note_id: Some("obs-2".to_string()),
