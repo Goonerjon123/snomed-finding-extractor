@@ -6,7 +6,7 @@ This project is intended to run as a lightweight local API sidecar or embedded R
 
 The API needs a runtime artefact built from the controlled value set export. The current export includes active SNOMED descriptions and synonyms, so a separate alias file is not required for breathlessness terms such as `SOB`, `SOBOE`, `short of breath`, and `breathlessness`.
 
-At build time, the importer also derives a small set of deterministic variants from official descriptions. For example, `PREFIX - expansion` descriptions can contribute the prefix acronym, simple `diabetes mellitus type` descriptions can contribute `Type 2 diabetes`, `Swelling of X` can contribute `swollen X`, and examination descriptions ending `on auscultation` can contribute the shorter base phrase. These variants remain refset-bounded and are blocked if the shorthand becomes ambiguous or loses clinically meaningful specificity.
+At build time, the importer also derives a small set of deterministic variants from official descriptions. For example, `PREFIX - expansion` descriptions can contribute the prefix acronym, simple `diabetes mellitus type` descriptions can contribute `Type 2 diabetes`, `Swelling of X` can contribute `swollen X`, and examination descriptions ending `on auscultation` can contribute the shorter base phrase. These variants remain refset-bounded and are blocked if the shorthand becomes ambiguous or loses clinically meaningful specificity. Generated acronym matches also check the original typed casing at runtime: digitless acronyms must be typed as uppercase acronym evidence, which prevents ordinary lowercase words from matching rare acronym syndromes.
 
 ```powershell
 $env:RUSTUP_HOME="D:\SNOMED CT EXTRACTOR\.toolchains\rustup"

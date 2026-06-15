@@ -272,6 +272,9 @@ impl TerminologyMatcher {
             if meta.requires_numeric_value && value.is_none() {
                 continue;
             }
+            if !acronym_match_casing_is_safe(&meta.source, &text[span_start..span_end]) {
+                continue;
+            }
             let key = (meta.concept_id.as_str(), span_start, span_end);
             if !seen.insert((key.0.to_string(), key.1, key.2)) {
                 continue;
@@ -317,6 +320,9 @@ impl TerminologyMatcher {
                     let Some((span_start, span_end)) = normalized.original_range(start, end) else {
                         continue;
                     };
+                    if !acronym_match_casing_is_safe(&meta.source, &text[span_start..span_end]) {
+                        continue;
+                    }
 
                     let key = (meta.concept_id.as_str(), span_start, span_end);
                     if !seen.insert((key.0.to_string(), key.1, key.2)) {
@@ -340,6 +346,25 @@ impl TerminologyMatcher {
 
         matches
     }
+}
+
+fn acronym_match_casing_is_safe(source: &str, matched_text: &str) -> bool {
+    if !source.contains("description-acronym") {
+        return true;
+    }
+
+    let letters = matched_text
+        .chars()
+        .filter(|ch| ch.is_ascii_alphabetic())
+        .collect::<Vec<_>>();
+    if letters.is_empty() {
+        return false;
+    }
+    if matched_text.chars().any(|ch| ch.is_ascii_digit()) {
+        return true;
+    }
+
+    letters.len() >= 2 && letters.iter().all(|ch| ch.is_ascii_uppercase())
 }
 
 /// Filler words tolerated between a numeric label and its value, so
@@ -850,5 +875,41 @@ mod tests {
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].concept_id, "49727002");
         assert_eq!(matches[0].preferred_term, "Cough");
+    }
+
+    #[test]
+    fn derived_acronyms_require_uppercase_evidence_without_digits() {
+        let artefact = TerminologyArtefact {
+            schema_version: 1,
+            terminology_version: "test".to_string(),
+            source_release: "test".to_string(),
+            refset_id: "test-refset".to_string(),
+            generated_at_utc: "test".to_string(),
+            concepts: vec![ConceptEntry {
+                concept_id: "1000000099".to_string(),
+                active: true,
+                preferred_term: "Alpha beta condition".to_string(),
+                descriptions: vec![],
+                variants: vec![TermVariant {
+                    text: "ABC".to_string(),
+                    source: "openehr-description-acronym".to_string(),
+                    description_id: None,
+                    allow_ambiguous: true,
+                    requires_numeric_value: false,
+                }],
+            }],
+            artefact_hash: String::new(),
+        };
+        let matcher = TerminologyMatcher::new(&artefact).unwrap();
+
+        assert!(matcher
+            .find_in_field(SoapField::History, "abc noted", false)
+            .is_empty());
+        assert_eq!(
+            matcher
+                .find_in_field(SoapField::History, "ABC noted", false)
+                .len(),
+            1
+        );
     }
 }

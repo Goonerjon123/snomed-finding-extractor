@@ -26,6 +26,7 @@ struct Token {
     orig_start: usize,
     orig_end: usize,
     sibling: bool,
+    list_separator_after: bool,
 }
 
 /// Tokenised sentence with the match located inside it. `span_first` is the
@@ -211,6 +212,7 @@ const TIGHT_GAP_ALLOW: &[&str] = &[
     "other",
     "more",
     "residual",
+    "yet",
     "overt",
     "clinical",
     "visible",
@@ -576,10 +578,19 @@ fn sentence_view(
                 orig_start,
                 orig_end,
                 sibling: rel_siblings.iter().any(|range| overlaps(*range)),
+                list_separator_after: false,
             });
         }
 
         cursor = token_end;
+    }
+
+    for index in 0..tokens.len().saturating_sub(1) {
+        tokens[index].list_separator_after = has_list_separator_between(
+            sentence,
+            tokens[index].orig_end,
+            tokens[index + 1].orig_start,
+        );
     }
 
     let span_first = tokens
@@ -637,6 +648,50 @@ fn gap_is_clear(tokens: &[Token], gap: std::ops::Range<usize>, allow: &[&str]) -
     })
 }
 
+fn tight_gap_is_clear(
+    tokens: &[Token],
+    gap: std::ops::Range<usize>,
+    allow: &[&str],
+    match_start: usize,
+) -> bool {
+    gap.clone().all(|index| {
+        let token = &tokens[index];
+        !is_contrast(token)
+            && (token.sibling
+                || has_digit(token)
+                || allow.contains(&token.text.as_str())
+                || is_negated_list_fragment(tokens, index, match_start))
+    })
+}
+
+fn is_negated_list_fragment(tokens: &[Token], index: usize, match_start: usize) -> bool {
+    if index >= match_start {
+        return false;
+    }
+    let token = &tokens[index];
+    if token.text.chars().any(|ch| ch.is_ascii_digit()) || token.text.len() > 24 {
+        return false;
+    }
+    if token.text.ends_with("ing") || token.text.ends_with("ed") {
+        return false;
+    }
+
+    token.list_separator_after
+        || tokens
+            .get(index + 1)
+            .map(|next| matches!(next.text.as_str(), "and" | "or" | "nor"))
+            .unwrap_or(false)
+}
+
+fn has_list_separator_between(sentence: &str, start: usize, end: usize) -> bool {
+    if start >= end || end > sentence.len() {
+        return false;
+    }
+    sentence[start..end]
+        .chars()
+        .any(|ch| matches!(ch, '/' | ',' | '+'))
+}
+
 /// A tight cue scopes over the match only when every token between the cue
 /// and the match is an allowed descriptor, a digit, or part of another
 /// terminology match joined by coordination.
@@ -644,7 +699,12 @@ fn tight_cue_applies(view: &SentenceView, phrases: &[&[&str]], allow: &[&str]) -
     let Some(cue_end) = last_phrase_end(&view.tokens, view.span_first, phrases) else {
         return false;
     };
-    gap_is_clear(&view.tokens, cue_end..view.span_first, allow)
+    tight_gap_is_clear(
+        &view.tokens,
+        cue_end..view.span_first,
+        allow,
+        view.span_first,
+    )
 }
 
 /// A frame cue (conditional, family-history heading) applies to the rest of
@@ -861,6 +921,26 @@ mod tests {
             "wheeze",
             &["cough"],
         );
+        assert!(!decision.accepted);
+        assert_eq!(decision.assertion, AssertionStatus::Negated);
+    }
+
+    #[test]
+    fn negation_scopes_over_punctuated_lists_with_unknown_items() {
+        for text in [
+            "Denies ABC / target marker / future plans",
+            "Denies ABC, target marker, future plans",
+            "Denies ABC or target marker",
+        ] {
+            let decision = classify(SoapField::History, text, "target marker");
+            assert!(!decision.accepted, "expected suppression for {text}");
+            assert_eq!(decision.assertion, AssertionStatus::Negated);
+        }
+    }
+
+    #[test]
+    fn not_yet_scopes_as_negation() {
+        let decision = classify(SoapField::History, "Not yet target marker", "target marker");
         assert!(!decision.accepted);
         assert_eq!(decision.assertion, AssertionStatus::Negated);
     }

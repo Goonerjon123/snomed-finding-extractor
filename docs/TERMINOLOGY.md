@@ -105,6 +105,12 @@ The importer also derives conservative variants from those official descriptions
 - Two-token terms can match coordinated shared-head phrasing when the original text contains a coordinator such as `/`, `and`, or `or`, for example `alpha/beta marker` matching both `alpha marker` and `beta marker`.
 - Simple two-word rate observables can contribute numeric-only labels such as `Pulse` and `P` from `Pulse rate`; official acronym descriptions can contribute numeric-only temperature labels such as `T` from `BT - Body temperature`. These labels are accepted only when followed by a numeric value.
 
+Generated acronym variants are additionally checked against the original typed
+evidence at runtime. If the match contains no digits, the clinician text must
+preserve uppercase acronym casing, so ordinary lowercase words such as `was` or
+`kids` do not match generated syndrome acronyms. Digit-bearing acronyms remain
+case tolerant, for example `t2dm`.
+
 `build-rf2` uses RF2 concept, description, language, and refset snapshot files. It applies the same description-derived variant rules and should become the production build path because it can include active descriptions, synonyms, and UK language acceptability.
 
 Both build paths still accept an optional alias file, but this should be a fallback for locally governed content not present in the enriched terminology export.

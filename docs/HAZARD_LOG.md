@@ -2,10 +2,10 @@
 
 | ID | Hazard | Cause | Harm | Initial Severity | Controls | Residual Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| H-001 | Negated finding is proposed as positive | Negation scope failure or missed coordinated phrase member | Incorrect coded problem list or downstream decision support | High | Clause-scoped negation binding (bounded gap allow-list, contrast breakers, coordinated-sibling propagation), coordinated shared-head matching before assertion classification, regression corpus, clinician confirmation | Open |
+| H-001 | Negated finding is proposed as positive | Negation scope failure or missed coordinated/list phrase member | Incorrect coded problem list or downstream decision support | High | Clause-scoped negation binding (bounded gap allow-list, contrast breakers, coordinated-sibling propagation), coordinated shared-head matching before assertion classification, bounded negated-list handling for slash/comma/and/or lists, regression corpus, clinician confirmation | Open |
 | H-002 | Family-history finding is proposed as patient finding | Experiencer detection failure | Incorrect patient diagnosis | High | Experiencer binding through possessive connectors before/after the match (social and reporting mentions excluded), regression corpus, clinician confirmation | Open |
 | H-003 | Planned screening/test target is proposed as current finding | Plan field or action cue failure | Incorrect morbidity coding | High | Plan field suppressed by default; completed-action override scoped to nearest cue with advice-style blockers; planned-action rules; regression corpus | Open |
-| H-004 | Ambiguous abbreviation is matched incorrectly | Common acronym overlap | Incorrect code suggestion | Medium | Ambiguous term blocklist, explicit allow flag, acronym specificity guard | Open |
+| H-004 | Ambiguous abbreviation is matched incorrectly | Common acronym overlap or ordinary word matching a generated acronym | Incorrect code suggestion | Medium | Ambiguous term blocklist, explicit allow flag, acronym specificity guard, generated acronym casing evidence check | Open |
 | H-005 | Out-of-date terminology used | Artefact not refreshed | Missing or stale codes | Medium | Artefact version/hash display, release procedure | Open |
 | H-006 | Raw patient text appears in logs | Integration logging error | Confidentiality breach | High | No raw text logging in engine, integration logging review | Open |
 | H-007 | Clinician assumes suggestion is confirmed code | Poor UI distinction | Incorrect record entry | High | EPR UI requirement, usability review, confirmation step | Open |
@@ -16,5 +16,6 @@
 
 | H-012 | Captured observable value bound to the wrong observable | Value-capture picks up an unrelated number after the label | Incorrect quantity proposed for confirmation | Medium | Value capture limited to the observables extraction; bounded filler tolerance; numeric-token requirement; known-unit allow-list; original-text spans; clinician confirmation of value before storage | Open |
 | H-013 | Ambiguous term silently removed, reducing recall | Ambiguity guard drops a multi-concept term | Missed candidate code, manual coding burden | Low | Build-time ambiguity audit (`audit-terms`, startup warning) surfaces dropped terms for terminology review | Open |
+| H-014 | Over-broad value set admits unsuitable concepts for an endpoint | Symptom/examination refset contains administrative findings, rare disorders, or non-symptom states | Poor-quality candidate list and reduced clinician trust | Medium | Separate endpoint-specific artefacts, refset membership review, route/template checks in the EPR integration, terminology audit before release, clinician confirmation | Open |
 
 Severity and residual risk must be reviewed by the Clinical Safety Officer before clinical deployment.
