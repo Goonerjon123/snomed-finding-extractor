@@ -26,6 +26,7 @@ struct Token {
     orig_start: usize,
     orig_end: usize,
     sibling: bool,
+    list_separator_before: bool,
     list_separator_after: bool,
 }
 
@@ -74,6 +75,10 @@ const UNCERTAIN_PHRASES: &[&[&str]] = &[
     &["considering"],
     &["concern", "about"],
     &["concerned", "about"],
+    &["worried", "about"],
+    &["worried", "re"],
+    &["worry", "about"],
+    &["worry", "re"],
 ];
 
 const HISTORICAL_PHRASES: &[&[&str]] = &[
@@ -246,6 +251,78 @@ const TIGHT_GAP_ALLOW: &[&str] = &[
     "nor",
     "and",
     "such",
+];
+
+/// Body-site and laterality words that can sit between a negation cue and the
+/// actual finding: "no limb weakness", "no spinal mass". Kept separate from
+/// general gap words so it is clear this is anatomical qualification, not a
+/// broad licence for arbitrary nouns.
+const ANATOMICAL_GAP_ALLOW: &[&str] = &[
+    "abdominal",
+    "ankle",
+    "arm",
+    "arms",
+    "back",
+    "bladder",
+    "bowel",
+    "cervical",
+    "chest",
+    "cranial",
+    "elbow",
+    "eye",
+    "eyes",
+    "facial",
+    "foot",
+    "feet",
+    "hand",
+    "hands",
+    "hip",
+    "hips",
+    "knee",
+    "knees",
+    "leg",
+    "legs",
+    "limb",
+    "limbs",
+    "lumbar",
+    "neck",
+    "pelvic",
+    "sacral",
+    "saddle",
+    "shoulder",
+    "shoulders",
+    "spinal",
+    "spine",
+    "thoracic",
+    "toe",
+    "toes",
+    "urinary",
+    "wrist",
+    "wrists",
+];
+
+const LIST_FRAGMENT_BLOCKERS: &[&str] = &[
+    "feel",
+    "feeling",
+    "feels",
+    "felt",
+    "get",
+    "gets",
+    "getting",
+    "got",
+    "had",
+    "has",
+    "have",
+    "having",
+    "is",
+    "present",
+    "presents",
+    "presenting",
+    "reported",
+    "reporting",
+    "reports",
+    "says",
+    "with",
 ];
 
 /// Connectors a family/non-patient experiencer may scope across before the
@@ -578,6 +655,7 @@ fn sentence_view(
                 orig_start,
                 orig_end,
                 sibling: rel_siblings.iter().any(|range| overlaps(*range)),
+                list_separator_before: false,
                 list_separator_after: false,
             });
         }
@@ -586,11 +664,13 @@ fn sentence_view(
     }
 
     for index in 0..tokens.len().saturating_sub(1) {
-        tokens[index].list_separator_after = has_list_separator_between(
+        let has_separator = has_list_separator_between(
             sentence,
             tokens[index].orig_end,
             tokens[index + 1].orig_start,
         );
+        tokens[index].list_separator_after = has_separator;
+        tokens[index + 1].list_separator_before = has_separator;
     }
 
     let span_first = tokens
@@ -660,6 +740,7 @@ fn tight_gap_is_clear(
             && (token.sibling
                 || has_digit(token)
                 || allow.contains(&token.text.as_str())
+                || ANATOMICAL_GAP_ALLOW.contains(&token.text.as_str())
                 || is_negated_list_fragment(tokens, index, match_start))
     })
 }
@@ -672,11 +753,15 @@ fn is_negated_list_fragment(tokens: &[Token], index: usize, match_start: usize) 
     if token.text.chars().any(|ch| ch.is_ascii_digit()) || token.text.len() > 24 {
         return false;
     }
+    if LIST_FRAGMENT_BLOCKERS.contains(&token.text.as_str()) {
+        return false;
+    }
     if token.text.ends_with("ing") || token.text.ends_with("ed") {
         return false;
     }
 
-    token.list_separator_after
+    token.list_separator_before
+        || token.list_separator_after
         || tokens
             .get(index + 1)
             .map(|next| matches!(next.text.as_str(), "and" | "or" | "nor"))
@@ -936,6 +1021,28 @@ mod tests {
             assert!(!decision.accepted, "expected suppression for {text}");
             assert_eq!(decision.assertion, AssertionStatus::Negated);
         }
+
+        let decision = classify_with_siblings(
+            SoapField::History,
+            "No first marker / alpha beta / target marker",
+            "target marker",
+            &["first marker"],
+        );
+        assert!(!decision.accepted);
+        assert_eq!(decision.assertion, AssertionStatus::Negated);
+    }
+
+    #[test]
+    fn negation_scopes_across_anatomical_qualifiers() {
+        for (text, target, siblings) in [
+            ("No limb weakness", "weakness", vec![]),
+            ("No limb weakness/numbness", "numbness", vec!["weakness"]),
+            ("No spinal step/mass", "mass", vec!["step"]),
+        ] {
+            let decision = classify_with_siblings(SoapField::History, text, target, &siblings);
+            assert!(!decision.accepted, "expected suppression for {text}");
+            assert_eq!(decision.assertion, AssertionStatus::Negated);
+        }
     }
 
     #[test]
@@ -1096,6 +1203,18 @@ mod tests {
         let decision = classify(SoapField::Assessment, "?pneumonia", "pneumonia");
         assert!(!decision.accepted);
         assert_eq!(decision.assertion, AssertionStatus::Uncertain);
+    }
+
+    #[test]
+    fn concern_wording_marks_following_concept_uncertain() {
+        for text in [
+            "Worried about target condition",
+            "Worried re: target condition",
+        ] {
+            let decision = classify(SoapField::History, text, "target condition");
+            assert!(!decision.accepted, "expected uncertainty for {text}");
+            assert_eq!(decision.assertion, AssertionStatus::Uncertain);
+        }
     }
 
     #[test]

@@ -627,10 +627,7 @@ fn split_observable_acronym_expansion(term: &str) -> Option<(&str, &str)> {
     if prefix.len() < 2 || prefix.len() > 12 || expansion.len() < 5 {
         return None;
     }
-    if !prefix.chars().all(|ch| ch.is_ascii_alphanumeric()) {
-        return None;
-    }
-    if !prefix.chars().any(|ch| ch.is_ascii_uppercase()) {
+    if !is_acronym_like_prefix(prefix) {
         return None;
     }
     Some((prefix, expansion))
@@ -652,13 +649,21 @@ fn split_acronym_expansion(term: &str) -> Option<(&str, &str)> {
     if prefix.len() < 3 || prefix.len() > 12 || expansion.len() < 5 {
         return None;
     }
-    if !prefix.chars().all(|ch| ch.is_ascii_alphanumeric()) {
-        return None;
-    }
-    if !prefix.chars().any(|ch| ch.is_ascii_uppercase()) {
+    if !is_acronym_like_prefix(prefix) {
         return None;
     }
     Some((prefix, expansion))
+}
+
+fn is_acronym_like_prefix(prefix: &str) -> bool {
+    if !prefix.chars().all(|ch| ch.is_ascii_alphanumeric()) {
+        return false;
+    }
+
+    let upper_count = prefix.chars().filter(|ch| ch.is_ascii_uppercase()).count();
+    let letter_count = prefix.chars().filter(|ch| ch.is_ascii_alphabetic()).count();
+
+    upper_count >= 2 || (prefix.chars().any(|ch| ch.is_ascii_digit()) && letter_count > 0)
 }
 
 fn acronym_matches_expansion(prefix: &str, expansion: &str) -> bool {
@@ -871,6 +876,14 @@ mod tests {
         assert!(derived
             .iter()
             .any(|variant| variant.term == "short of breath on exertion"));
+    }
+
+    #[test]
+    fn does_not_derive_expansions_from_plain_hyphenated_descriptions() {
+        let derived = derive_description_variants("Spasm - movement");
+
+        assert!(!derived.iter().any(|variant| variant.term == "movement"
+            && variant.source == "openehr-description-expansion"));
     }
 
     #[test]

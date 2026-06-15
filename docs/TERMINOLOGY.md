@@ -96,7 +96,7 @@ The generated artefact contains:
 
 The importer also derives conservative variants from those official descriptions:
 
-- `PREFIX - expansion` descriptions can contribute `PREFIX` when the acronym is safe to use.
+- `PREFIX - expansion` descriptions can contribute `PREFIX` when the prefix is acronym-like and safe to use. Plain title-case hyphenated descriptions are not treated as acronym expansions, so a description such as `Spasm - movement` cannot create the broad standalone variant `movement`.
 - Non-initialism prefixes such as `URTI` can be used when the expansion is a base phrase, but are not derived from expansions that add unencoded specificity such as `viral`.
 - Simple diabetes mellitus descriptions can contribute GP shorthand such as `Type 2 diabetes` while avoiding broad complication phrases.
 - Morphology descriptions can contribute constrained phrase variants such as `swollen X` from `Swelling of X`.
