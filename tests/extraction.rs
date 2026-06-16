@@ -654,3 +654,49 @@ fn suppresses_coordinated_shared_head_findings_under_negation() {
     assert!(suppressed.contains(&("generic-1", "alpha/beta marker", AssertionStatus::Negated)));
     assert!(suppressed.contains(&("generic-2", "beta marker", AssertionStatus::Negated)));
 }
+
+#[test]
+fn suppresses_qualified_symptoms_in_repeated_negated_red_flag_lists() {
+    let extractor = Extractor::new(TerminologyArtefact {
+        schema_version: 1,
+        terminology_version: "fixture-negated-red-flags".to_string(),
+        source_release: "fixture".to_string(),
+        refset_id: "fixture-negated-red-flags".to_string(),
+        generated_at_utc: "fixture".to_string(),
+        concepts: vec![
+            concept("422400008", "Vomiting", &["vomiting"]),
+            concept("63491006", "Intermittent claudication", &["claudication"]),
+            concept("49727002", "Cough", &["coughing"]),
+            concept("13791008", "Asthenia", &["weakness"]),
+            concept("44077006", "Numbness", &["numbness"]),
+            concept("386661006", "Fever", &["fever"]),
+            concept("161880003", "Stiff neck symptom", &["neck stiffness"]),
+        ],
+        artefact_hash: String::new(),
+    })
+    .unwrap();
+
+    let response = extractor
+        .extract(ExtractRequest {
+            history: "No visual loss, no weakness/numbness, no fever/neck stiffness, not worse lying/coughing, no early-morning vomiting, no jaw claudication.".to_string(),
+            include_suppressed: true,
+            refset_id: Some("fixture-negated-red-flags".to_string()),
+            ..ExtractRequest::default()
+        })
+        .unwrap();
+
+    assert!(response.matches.is_empty());
+
+    for concept_id in ["422400008", "63491006"] {
+        assert!(
+            response.suppressed.iter().any(|item| {
+                item.concept_id == concept_id && item.assertion == AssertionStatus::Negated
+            }),
+            "expected negated suppression for {concept_id}"
+        );
+    }
+
+    assert!(response.suppressed.iter().any(|item| {
+        item.concept_id == "49727002" && item.assertion == AssertionStatus::Ambiguous
+    }));
+}

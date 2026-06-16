@@ -351,6 +351,51 @@ const LIST_FRAGMENT_BLOCKERS: &[&str] = &[
     "with",
 ];
 
+const DIRECT_NEGATION_MODIFIER_BLOCKERS: &[&str] = &[
+    "about",
+    "after",
+    "before",
+    "by",
+    "despite",
+    "due",
+    "during",
+    "for",
+    "from",
+    "in",
+    "into",
+    "near",
+    "on",
+    "onto",
+    "over",
+    "re",
+    "regarding",
+    "since",
+    "to",
+    "with",
+    "within",
+    "change",
+    "changes",
+    "chance",
+    "concern",
+    "concerns",
+    "decrease",
+    "decreased",
+    "improve",
+    "improved",
+    "improving",
+    "improvement",
+    "increase",
+    "increased",
+    "reduced",
+    "reduction",
+    "relief",
+    "risk",
+    "worse",
+    "worsen",
+    "worsened",
+    "worsening",
+];
+
 /// Connectors a family/non-patient experiencer may scope across before the
 /// match. Possessive verbs stay in scope ("mother has diabetes"); reporting
 /// verbs break it ("mother says he has a cough" is about the patient).
@@ -534,7 +579,7 @@ pub fn classify_assertion(
         });
     }
 
-    if tight_cue_applies(&view, NEGATION_PHRASES, TIGHT_GAP_ALLOW) {
+    if negation_cue_applies(&view) {
         hits.push(RuleHit {
             assertion: AssertionStatus::Negated,
             rule_id: "CTX_NEGATED_PRECEDING",
@@ -732,9 +777,8 @@ fn sentence_view(
     }
 }
 
-/// End index (exclusive) of the last phrase from `phrases` finishing at or
-/// before `limit`.
-fn last_phrase_end(tokens: &[Token], limit: usize, phrases: &[&[&str]]) -> Option<usize> {
+/// Span of the last phrase from `phrases` finishing at or before `limit`.
+fn last_phrase_span(tokens: &[Token], limit: usize, phrases: &[&[&str]]) -> Option<(usize, usize)> {
     let mut last = None;
     for phrase in phrases {
         if phrase.is_empty() || phrase.len() > limit {
@@ -747,13 +791,22 @@ fn last_phrase_end(tokens: &[Token], limit: usize, phrases: &[&[&str]]) -> Optio
                 .all(|(offset, word)| tokens[start + offset].text == *word);
             if matched {
                 let end = start + phrase.len();
-                if last.map(|previous| end > previous).unwrap_or(true) {
-                    last = Some(end);
+                if last
+                    .map(|(_, previous_end)| end > previous_end)
+                    .unwrap_or(true)
+                {
+                    last = Some((start, end));
                 }
             }
         }
     }
     last
+}
+
+/// End index (exclusive) of the last phrase from `phrases` finishing at or
+/// before `limit`.
+fn last_phrase_end(tokens: &[Token], limit: usize, phrases: &[&[&str]]) -> Option<usize> {
+    last_phrase_span(tokens, limit, phrases).map(|(_, end)| end)
 }
 
 fn is_contrast(token: &Token) -> bool {
@@ -777,18 +830,26 @@ fn tight_gap_is_clear(
     allow: &[&str],
     match_start: usize,
 ) -> bool {
-    gap.clone().all(|index| {
-        let token = &tokens[index];
-        if starts_affirmed_finding_after_list_separator(token) {
-            return false;
-        }
-        !is_contrast(token)
-            && (token.sibling
-                || has_digit(token)
-                || allow.contains(&token.text.as_str())
-                || ANATOMICAL_GAP_ALLOW.contains(&token.text.as_str())
-                || is_negated_list_fragment(tokens, index, match_start))
-    })
+    gap.clone()
+        .all(|index| tight_gap_token_is_clear(tokens, index, allow, match_start))
+}
+
+fn tight_gap_token_is_clear(
+    tokens: &[Token],
+    index: usize,
+    allow: &[&str],
+    match_start: usize,
+) -> bool {
+    let token = &tokens[index];
+    if starts_affirmed_finding_after_list_separator(token) {
+        return false;
+    }
+    !is_contrast(token)
+        && (token.sibling
+            || has_digit(token)
+            || allow.contains(&token.text.as_str())
+            || ANATOMICAL_GAP_ALLOW.contains(&token.text.as_str())
+            || is_negated_list_fragment(tokens, index, match_start))
 }
 
 fn starts_affirmed_finding_after_list_separator(token: &Token) -> bool {
@@ -852,6 +913,59 @@ fn tight_cue_applies(view: &SentenceView, phrases: &[&[&str]], allow: &[&str]) -
         allow,
         view.span_first,
     )
+}
+
+fn negation_cue_applies(view: &SentenceView) -> bool {
+    let Some((_, cue_end)) = last_phrase_span(&view.tokens, view.span_first, NEGATION_PHRASES)
+    else {
+        return false;
+    };
+
+    let gap = cue_end..view.span_first;
+    tight_gap_is_clear(&view.tokens, gap.clone(), TIGHT_GAP_ALLOW, view.span_first)
+        || direct_negation_modifier_gap_is_clear(&view.tokens, gap, view.span_first)
+}
+
+fn direct_negation_modifier_gap_is_clear(
+    tokens: &[Token],
+    gap: std::ops::Range<usize>,
+    match_start: usize,
+) -> bool {
+    let gap_len = gap.end.saturating_sub(gap.start);
+    if gap_len == 0 || gap_len > 4 {
+        return false;
+    }
+
+    let mut inferred_modifiers = 0usize;
+    for index in gap {
+        let token = &tokens[index];
+        if starts_affirmed_finding_after_list_separator(token) || is_contrast(token) {
+            return false;
+        }
+        if tight_gap_token_is_clear(tokens, index, TIGHT_GAP_ALLOW, match_start) {
+            continue;
+        }
+        if safe_direct_negation_modifier(token) {
+            inferred_modifiers += 1;
+            if inferred_modifiers <= 2 {
+                continue;
+            }
+        }
+        return false;
+    }
+
+    true
+}
+
+fn safe_direct_negation_modifier(token: &Token) -> bool {
+    let text = token.text.as_str();
+    text.len() >= 2
+        && text.len() <= 18
+        && text.chars().all(|ch| ch.is_ascii_alphabetic())
+        && !text.ends_with("ed")
+        && !text.ends_with("ing")
+        && !LIST_FRAGMENT_BLOCKERS.contains(&text)
+        && !DIRECT_NEGATION_MODIFIER_BLOCKERS.contains(&text)
 }
 
 /// A frame cue (conditional, family-history heading) applies to the rest of
@@ -1120,6 +1234,35 @@ mod tests {
             assert!(!decision.accepted, "expected suppression for {text}");
             assert_eq!(decision.assertion, AssertionStatus::Negated);
         }
+    }
+
+    #[test]
+    fn negation_scopes_over_directly_qualified_symptoms() {
+        for (text, target) in [
+            ("No early-morning vomiting", "vomiting"),
+            ("No jaw claudication", "claudication"),
+            ("No right upper quadrant pain", "pain"),
+            ("Denies scalp tenderness", "tenderness"),
+        ] {
+            let decision = classify(SoapField::History, text, target);
+            assert!(!decision.accepted, "expected suppression for {text}");
+            assert_eq!(decision.assertion, AssertionStatus::Negated);
+        }
+    }
+
+    #[test]
+    fn repeated_negation_in_red_flag_lists_scopes_to_each_qualified_symptom() {
+        let text = "No visual loss, no weakness/numbness, no fever/neck stiffness, not worse lying/coughing, no early-morning vomiting, no jaw claudication.";
+
+        for target in ["vomiting", "claudication"] {
+            let decision = classify(SoapField::History, text, target);
+            assert!(!decision.accepted, "expected suppression for {target}");
+            assert_eq!(decision.assertion, AssertionStatus::Negated);
+        }
+
+        let cough = classify(SoapField::History, text, "coughing");
+        assert!(!cough.accepted);
+        assert_eq!(cough.assertion, AssertionStatus::Ambiguous);
     }
 
     #[test]

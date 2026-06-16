@@ -223,6 +223,13 @@ The diagnosis endpoint deliberately accepts only the `assessment` field. It retu
 
 For `/v1/extract-observables` and `/v1/extract-examination-findings`, every accepted or suppressed item has `"field": "objective"`. For `/v1/extract-diagnoses`, every accepted or suppressed item has `"field": "assessment"`.
 
+The examination-finding endpoint returns clinically meaningful normal and
+non-affirmed exam evidence in `matches`, not only in `suppressed`. For example,
+`HS normal` can return Heart sounds with `"assertion": "normal"`, and
+`no goitre` can return the Goiter concept with `"assertion": "negated"`,
+allowing downstream openEHR exam templates to record normal/negative findings
+explicitly. Affirmed matches omit `assertion`; treat that as `affirmed`.
+
 ## 8. Example Client Calls
 
 ```powershell

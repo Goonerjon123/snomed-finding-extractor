@@ -75,6 +75,7 @@ struct MorphPatternMeta {
 enum FlexiblePatternKind {
     BodySite,
     BodySiteThenHead,
+    ClinicalDescriptorFinal,
     CoordinatedSharedHead,
     SiteHeadReordered,
 }
@@ -280,6 +281,16 @@ impl TerminologyMatcher {
                         FlexiblePatternKind::BodySiteThenHead,
                     );
                 }
+                if let Some(tokens) = clinical_descriptor_final_pattern_tokens(&candidate.pattern) {
+                    push_flexible_pattern(
+                        &mut flexible_patterns,
+                        &mut flexible_by_first_token,
+                        &candidate,
+                        tokens,
+                        "clinical-descriptor-final",
+                        FlexiblePatternKind::ClinicalDescriptorFinal,
+                    );
+                }
                 if let Some(tokens) = coordinated_shared_head_pattern_tokens(&candidate.pattern) {
                     push_flexible_pattern(
                         &mut flexible_patterns,
@@ -411,6 +422,14 @@ impl TerminologyMatcher {
                         }
                         FlexiblePatternKind::BodySiteThenHead => {
                             find_body_site_then_head_match(text, &tokens, token_index, &meta.tokens)
+                        }
+                        FlexiblePatternKind::ClinicalDescriptorFinal => {
+                            find_clinical_descriptor_final_match(
+                                text,
+                                &tokens,
+                                token_index,
+                                &meta.tokens,
+                            )
                         }
                         FlexiblePatternKind::CoordinatedSharedHead => {
                             find_coordinated_shared_head_match(
@@ -958,6 +977,124 @@ fn body_site_descriptor_pattern_tokens(pattern: &str) -> Option<Vec<String>> {
     Some(tokens)
 }
 
+fn clinical_descriptor_final_pattern_tokens(pattern: &str) -> Option<Vec<String>> {
+    let tokens = pattern
+        .split(' ')
+        .filter(|token| !token.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if tokens.len() < 2 || tokens.len() > 4 {
+        return None;
+    }
+
+    let descriptor = tokens.first()?;
+    let noun_phrase = &tokens[1..];
+    if !reorderable_clinical_descriptor(descriptor) || !likely_clinical_noun_phrase(noun_phrase) {
+        return None;
+    }
+
+    let mut reordered = Vec::with_capacity(tokens.len());
+    reordered.extend(noun_phrase.iter().cloned());
+    reordered.push(descriptor.clone());
+    Some(reordered)
+}
+
+fn reorderable_clinical_descriptor(token: &str) -> bool {
+    matches!(
+        token,
+        "abnormal"
+            | "absent"
+            | "altered"
+            | "blurred"
+            | "decreased"
+            | "disturbed"
+            | "erratic"
+            | "frequent"
+            | "heavy"
+            | "heavier"
+            | "impaired"
+            | "increased"
+            | "infrequent"
+            | "irregular"
+            | "light"
+            | "low"
+            | "missed"
+            | "painful"
+            | "poor"
+            | "prolonged"
+            | "reduced"
+            | "scanty"
+            | "variable"
+    )
+}
+
+fn likely_clinical_noun_phrase(tokens: &[String]) -> bool {
+    if tokens.is_empty() || tokens.len() > 3 {
+        return false;
+    }
+
+    tokens.iter().all(|token| clinical_noun_phrase_token(token))
+        && tokens
+            .last()
+            .map(|token| clinical_noun_head(token))
+            .unwrap_or(false)
+}
+
+fn clinical_noun_phrase_token(token: &str) -> bool {
+    matches!(
+        token,
+        "appetite"
+            | "balance"
+            | "bleeding"
+            | "bowel"
+            | "concentration"
+            | "cycle"
+            | "flow"
+            | "gait"
+            | "hearing"
+            | "memory"
+            | "menstrual"
+            | "menses"
+            | "menstruation"
+            | "mood"
+            | "period"
+            | "periods"
+            | "sleep"
+            | "stool"
+            | "urinary"
+            | "urination"
+            | "urine"
+            | "vision"
+            | "weight"
+    )
+}
+
+fn clinical_noun_head(token: &str) -> bool {
+    matches!(
+        token,
+        "appetite"
+            | "balance"
+            | "bleeding"
+            | "concentration"
+            | "cycle"
+            | "flow"
+            | "gait"
+            | "hearing"
+            | "memory"
+            | "menses"
+            | "menstruation"
+            | "mood"
+            | "period"
+            | "periods"
+            | "sleep"
+            | "stool"
+            | "urination"
+            | "urine"
+            | "vision"
+            | "weight"
+    )
+}
+
 fn reorderable_site_descriptor(token: &str) -> bool {
     matches!(
         token,
@@ -1293,6 +1430,70 @@ fn find_body_site_then_head_match(
     }
 
     Some((tokens[start_index].start, tokens[end_index].end))
+}
+
+fn find_clinical_descriptor_final_match(
+    original_text: &str,
+    tokens: &[NormalizedToken<'_>],
+    start_index: usize,
+    pattern_tokens: &[String],
+) -> Option<(usize, usize)> {
+    const MAX_EXTRA_TOKENS: usize = 2;
+
+    if pattern_tokens.len() < 2 || !token_matches(&pattern_tokens[0], tokens.get(start_index)?.text)
+    {
+        return None;
+    }
+
+    let mut search_from = start_index + 1;
+    let mut extra_tokens = 0_usize;
+    let mut end_index = start_index;
+    for pattern_token in pattern_tokens.iter().skip(1) {
+        let mut found_index = None;
+        let search_limit = (search_from + MAX_EXTRA_TOKENS + 1).min(tokens.len());
+        for (candidate_index, candidate_token) in tokens
+            .iter()
+            .enumerate()
+            .take(search_limit)
+            .skip(search_from)
+        {
+            if token_matches(pattern_token, candidate_token.text) {
+                found_index = Some(candidate_index);
+                break;
+            }
+            if !clinical_descriptor_final_gap_token(candidate_token.text) {
+                return None;
+            }
+        }
+
+        let found_index = found_index?;
+        if flexible_gap_contains_context_cue(&tokens[end_index + 1..found_index]) {
+            return None;
+        }
+        if has_hard_boundary_between(
+            original_text,
+            tokens[end_index].original_end,
+            tokens[found_index].original_start,
+        ) {
+            return None;
+        }
+        extra_tokens += found_index.saturating_sub(search_from);
+        if extra_tokens > MAX_EXTRA_TOKENS {
+            return None;
+        }
+
+        search_from = found_index + 1;
+        end_index = found_index;
+    }
+
+    Some((tokens[start_index].start, tokens[end_index].end))
+}
+
+fn clinical_descriptor_final_gap_token(token: &str) -> bool {
+    matches!(
+        token,
+        "a" | "an" | "are" | "bit" | "is" | "quite" | "really" | "still" | "the" | "very"
+    )
 }
 
 fn flexible_gap_contains_context_cue(tokens: &[NormalizedToken<'_>]) -> bool {
@@ -1756,6 +1957,43 @@ mod tests {
             "pain after fatty meals, calves fine",
             false,
         );
+
+        assert!(matches.is_empty());
+    }
+
+    #[test]
+    fn descriptor_final_matches_short_clinical_shorthand() {
+        let matcher = TerminologyMatcher::new(&artefact_with(vec![
+            concept("386692008", "Menorrhagia", &["heavy periods"]),
+            concept("1000000205", "Poor sleep", &["poor sleep"]),
+        ]))
+        .unwrap();
+
+        let periods = matcher.find_in_field(SoapField::History, "Periods heavy", false);
+        assert_eq!(periods.len(), 1);
+        assert_eq!(periods[0].concept_id, "386692008");
+        assert_eq!(periods[0].matched_text, "Periods heavy");
+        assert_eq!(periods[0].normalized_match, "heavy periods");
+        assert!(periods[0]
+            .pattern_source
+            .ends_with(":clinical-descriptor-final"));
+
+        let sleep = matcher.find_in_field(SoapField::History, "Sleep is still poor", false);
+        assert_eq!(sleep.len(), 1);
+        assert_eq!(sleep[0].concept_id, "1000000205");
+        assert_eq!(sleep[0].matched_text, "Sleep is still poor");
+    }
+
+    #[test]
+    fn descriptor_final_rejects_nonclinical_noun_phrases() {
+        let matcher = TerminologyMatcher::new(&artefact_with(vec![concept(
+            "1000000206",
+            "Heavy feet",
+            &["heavy feet"],
+        )]))
+        .unwrap();
+
+        let matches = matcher.find_in_field(SoapField::History, "Feet heavy", false);
 
         assert!(matches.is_empty());
     }

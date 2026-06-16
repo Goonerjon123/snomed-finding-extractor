@@ -6,7 +6,9 @@ use crate::model::{
     ExtractRequest, ExtractResponse, FindingMatch, ObservableExtractRequest, SoapField,
     SuppressedMatch,
 };
-use crate::normalization::{normalize_clinical_text, normalize_term};
+use crate::normalization::{
+    is_normalized_word_boundary, normalize_clinical_text, normalize_term, NormalizedText,
+};
 use crate::terminology::TerminologyArtefact;
 use crate::{ENGINE_VERSION, RULESET_VERSION};
 use std::time::Instant;
@@ -133,6 +135,17 @@ impl Extractor {
                         accepted_rule_ids(extraction_kind, &decision),
                         accepted_explanation(extraction_kind, field, &decision),
                         body_site,
+                        decision.assertion,
+                    ));
+                } else if materialize_non_affirmed_match(extraction_kind, decision.assertion) {
+                    let explanation =
+                        non_affirmed_match_explanation(extraction_kind, field, &decision);
+                    matches.push(to_finding_match(
+                        raw,
+                        decision.rule_ids,
+                        explanation,
+                        None,
+                        decision.assertion,
                     ));
                 } else if request.include_suppressed {
                     suppressed.push(to_suppressed_match(
@@ -142,6 +155,10 @@ impl Extractor {
                         decision.explanation,
                     ));
                 }
+            }
+
+            if matches!(extraction_kind, ExtractionKind::ExaminationFinding) {
+                add_normal_examination_matches(field, text, &mut matches);
             }
         }
 
@@ -204,6 +221,128 @@ enum ExtractionKind {
     Observable,
     ExaminationFinding,
     Diagnosis,
+}
+
+fn materialize_non_affirmed_match(
+    extraction_kind: ExtractionKind,
+    assertion: AssertionStatus,
+) -> bool {
+    matches!(extraction_kind, ExtractionKind::ExaminationFinding)
+        && matches!(
+            assertion,
+            AssertionStatus::Normal | AssertionStatus::Negated | AssertionStatus::Uncertain
+        )
+}
+
+struct NormalExamFeature {
+    concept_id: &'static str,
+    preferred_term: &'static str,
+    patterns: &'static [&'static str],
+}
+
+const NORMAL_EXAM_FEATURES: &[NormalExamFeature] = &[
+    NormalExamFeature {
+        concept_id: "271660002",
+        preferred_term: "Heart sounds",
+        patterns: &[
+            "hs normal",
+            "heart sound normal",
+            "heart sounds normal",
+            "heart sounds are normal",
+        ],
+    },
+    NormalExamFeature {
+        concept_id: "364060002",
+        preferred_term: "Chest auscultation feature",
+        patterns: &[
+            "chest clear",
+            "chest is clear",
+            "lungs clear",
+            "lungs are clear",
+        ],
+    },
+    NormalExamFeature {
+        concept_id: "271911005",
+        preferred_term: "Abdominal examination finding",
+        patterns: &[
+            "abdomen snt",
+            "abdominal snt",
+            "abdomen soft non tender",
+            "abdominal soft non tender",
+            "abdomen soft and non tender",
+            "abdominal soft and non tender",
+            "abdomen soft nontender",
+            "abdominal soft nontender",
+        ],
+    },
+];
+
+fn add_normal_examination_matches(
+    field: SoapField,
+    field_text: &str,
+    matches: &mut Vec<FindingMatch>,
+) {
+    let normalized = normalize_clinical_text(field_text, field);
+    for feature in NORMAL_EXAM_FEATURES {
+        for pattern in feature.patterns {
+            add_normal_examination_pattern_match(
+                field,
+                field_text,
+                &normalized,
+                feature,
+                pattern,
+                matches,
+            );
+        }
+    }
+}
+
+fn add_normal_examination_pattern_match(
+    field: SoapField,
+    field_text: &str,
+    normalized: &NormalizedText,
+    feature: &NormalExamFeature,
+    pattern: &str,
+    matches: &mut Vec<FindingMatch>,
+) {
+    for (start, _) in normalized.text.match_indices(pattern) {
+        let end = start + pattern.len();
+        if !is_normalized_word_boundary(&normalized.text, start, end) {
+            continue;
+        }
+        let Some((span_start, span_end)) = normalized.original_range(start, end) else {
+            continue;
+        };
+        if matches.iter().any(|item| {
+            item.field == field
+                && spans_overlap(span_start, span_end, item.span_start, item.span_end)
+        }) {
+            continue;
+        }
+
+        matches.push(FindingMatch {
+            concept_id: feature.concept_id.to_string(),
+            preferred_term: feature.preferred_term.to_string(),
+            field,
+            span_start,
+            span_end,
+            matched_text: field_text[span_start..span_end].to_string(),
+            normalized_match: (*pattern).to_string(),
+            term_source: "built-in-normal-exam-feature".to_string(),
+            value: None,
+            body_site: None,
+            assertion: AssertionStatus::Normal,
+            rule_ids: vec!["ASSERT_NORMAL_PATIENT_EXAMINATION_FINDING".to_string()],
+            explanation: format!(
+                "Reported as a normal patient examination finding in the {} field.",
+                field.as_str()
+            ),
+        });
+    }
+}
+
+fn spans_overlap(left_start: usize, left_end: usize, right_start: usize, right_end: usize) -> bool {
+    left_start < right_end && left_end > right_start
 }
 
 fn kind_rule_id(extraction_kind: ExtractionKind) -> &'static str {
@@ -497,6 +636,33 @@ fn accepted_explanation(
     kind_explanation(extraction_kind, field)
 }
 
+fn non_affirmed_match_explanation(
+    extraction_kind: ExtractionKind,
+    field: SoapField,
+    decision: &crate::context::AssertionDecision,
+) -> String {
+    let assertion = match decision.assertion {
+        AssertionStatus::Negated => "negated",
+        AssertionStatus::Uncertain => "uncertain",
+        _ => "non-affirmed",
+    };
+    let kind = match extraction_kind {
+        ExtractionKind::ExaminationFinding => "examination finding",
+        ExtractionKind::Finding => "finding",
+        ExtractionKind::Observable => "observable entity",
+        ExtractionKind::Diagnosis => "diagnosis/disorder",
+    };
+    let reason = decision
+        .explanation
+        .strip_prefix("Suppressed: ")
+        .unwrap_or(decision.explanation.as_str())
+        .trim_end_matches('.');
+    format!(
+        "Reported as a {assertion} patient {kind} in the {} field: {reason}.",
+        field.as_str()
+    )
+}
+
 fn kind_explanation(extraction_kind: ExtractionKind, field: SoapField) -> String {
     match extraction_kind {
         ExtractionKind::Finding => format!(
@@ -523,6 +689,7 @@ fn to_finding_match(
     rule_ids: Vec<String>,
     explanation: String,
     body_site: Option<BodySiteMatch>,
+    assertion: AssertionStatus,
 ) -> FindingMatch {
     FindingMatch {
         concept_id: raw.concept_id,
@@ -535,6 +702,7 @@ fn to_finding_match(
         term_source: raw.pattern_source,
         value: raw.value,
         body_site,
+        assertion,
         rule_ids,
         explanation,
     }

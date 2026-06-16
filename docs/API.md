@@ -110,6 +110,7 @@ The response shape is the same for all endpoints. For `/v1/extract-observables` 
 
 - `term_source` — provenance of the matched term: how it entered the artefact (`preferred_term`, `openehr-description-acronym`, `clinical_alias:<set>`, `built-in-observable-alias`, ...). Runtime morphology matches append `:morphology`, for example `openehr-display:morphology`. This replaces the former `confidence` field, which was a fixed per-field constant and **not** a probability. Do not rank or threshold on a probability the engine never produced.
 - `value` — present on observable matches when a numeric value follows the label. Shape: `{ "text": "128/82", "unit": "mmHg", "span_start": 3, "span_end": 12 }`. `unit` is omitted when none was typed. The EPR can map this directly into an openEHR `DV_QUANTITY`/`DV_PROPORTION` rather than re-parsing the note. Value capture tolerates filler words, so `BP today 128/82` and `HR of 88 bpm` are captured; compact GP shorthand such as `afeb 37.2` is captured as body temperature when that concept is in the observable artefact.
+- `assertion` — omitted for ordinary affirmed matches. The examination-finding endpoint can include normal and non-affirmed exam evidence in `matches`, currently `normal`, `negated`, or `uncertain`, so statements such as `HS normal` and `no goitre` are available to downstream templates without using `include_suppressed`.
 
 `body_site` is present only on accepted symptom matches when the finding extractor
 has been configured with a Body Site artefact and a nearby body-site mention can
@@ -120,9 +121,10 @@ The Subjective field may be supplied as either `subjective` or `history` in `/v1
 
 ## Suppressed Assertions
 
-Suppressed matches are returned only when `include_suppressed` is true. A suppressed match has the same evidence fields as a positive match plus an assertion:
+Suppressed matches are returned only when `include_suppressed` is true. A suppressed match has the same evidence fields as a positive match plus an assertion. Normal, negated, and uncertain examination findings are not treated as suppressed; they are returned in `matches` with their `assertion` because normality, absence, and equivocality are clinically meaningful in an exam template.
 
 - `negated`
+- `normal`
 - `uncertain`
 - `family_history`
 - `historical_or_resolved`

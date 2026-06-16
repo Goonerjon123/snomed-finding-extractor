@@ -990,6 +990,7 @@ fn clinical_phrase_variants(term: &str) -> Vec<String> {
     variants.extend(cold_body_site_variants(normalized));
     variants.extend(colloquial_symptom_variants(normalized));
     variants.extend(decreased_reduced_variants(normalized));
+    variants.extend(descriptor_final_clinical_variants(normalized));
     variants.extend(prepositionless_site_variants(normalized));
     variants.extend(positive_sign_variants(normalized));
 
@@ -1076,6 +1077,120 @@ fn decreased_reduced_variants(normalized: &str) -> Vec<String> {
         }
     }
     variants
+}
+
+fn descriptor_final_clinical_variants(normalized: &str) -> Vec<String> {
+    let tokens = normalized.split(' ').collect::<Vec<_>>();
+    if tokens.len() < 2 || tokens.len() > 4 {
+        return Vec::new();
+    }
+
+    let Some((descriptor, noun_phrase)) = tokens.split_first() else {
+        return Vec::new();
+    };
+    if !reorderable_clinical_descriptor(descriptor) || !likely_clinical_noun_phrase(noun_phrase) {
+        return Vec::new();
+    }
+
+    let mut reordered = noun_phrase.to_vec();
+    reordered.push(*descriptor);
+    vec![reordered.join(" ")]
+}
+
+fn reorderable_clinical_descriptor(token: &str) -> bool {
+    matches!(
+        token,
+        "abnormal"
+            | "absent"
+            | "altered"
+            | "blurred"
+            | "decreased"
+            | "disturbed"
+            | "erratic"
+            | "frequent"
+            | "heavy"
+            | "heavier"
+            | "impaired"
+            | "increased"
+            | "infrequent"
+            | "irregular"
+            | "light"
+            | "low"
+            | "missed"
+            | "painful"
+            | "poor"
+            | "prolonged"
+            | "reduced"
+            | "scanty"
+            | "variable"
+    )
+}
+
+fn likely_clinical_noun_phrase(tokens: &[&str]) -> bool {
+    if tokens.is_empty() || tokens.len() > 3 {
+        return false;
+    }
+
+    tokens.iter().all(|token| clinical_noun_phrase_token(token))
+        && tokens
+            .last()
+            .map(|token| clinical_noun_head(token))
+            .unwrap_or(false)
+}
+
+fn clinical_noun_phrase_token(token: &str) -> bool {
+    matches!(
+        token,
+        "appetite"
+            | "balance"
+            | "bleeding"
+            | "bowel"
+            | "concentration"
+            | "cycle"
+            | "flow"
+            | "gait"
+            | "hearing"
+            | "memory"
+            | "menstrual"
+            | "menses"
+            | "menstruation"
+            | "mood"
+            | "period"
+            | "periods"
+            | "sleep"
+            | "stool"
+            | "urinary"
+            | "urination"
+            | "urine"
+            | "vision"
+            | "weight"
+    )
+}
+
+fn clinical_noun_head(token: &str) -> bool {
+    matches!(
+        token,
+        "appetite"
+            | "balance"
+            | "bleeding"
+            | "concentration"
+            | "cycle"
+            | "flow"
+            | "gait"
+            | "hearing"
+            | "memory"
+            | "menses"
+            | "menstruation"
+            | "mood"
+            | "period"
+            | "periods"
+            | "sleep"
+            | "stool"
+            | "urination"
+            | "urine"
+            | "vision"
+            | "weight"
+    )
 }
 
 fn prepositionless_site_variants(normalized: &str) -> Vec<String> {
@@ -1939,6 +2054,25 @@ mod tests {
             .any(|variant| variant.term == "painful periods"
                 && variant.source == "openehr-description-clinical-phrase-variant"
                 && !variant.allow_ambiguous));
+
+        let heavy_periods = derive_description_variants("Heavy periods");
+        assert!(heavy_periods
+            .iter()
+            .any(|variant| variant.term == "periods heavy"
+                && variant.source == "openehr-description-clinical-phrase-variant"
+                && !variant.allow_ambiguous));
+
+        let heavy_menstrual_bleeding = derive_description_variants("Heavy menstrual bleeding");
+        assert!(heavy_menstrual_bleeding
+            .iter()
+            .any(|variant| variant.term == "menstrual bleeding heavy"
+                && variant.source == "openehr-description-clinical-phrase-variant"
+                && !variant.allow_ambiguous));
+
+        let heavy_feet = derive_description_variants("Heavy feet");
+        assert!(!heavy_feet
+            .iter()
+            .any(|variant| variant.term == "feet heavy"));
     }
 
     #[test]
@@ -2000,6 +2134,11 @@ mod tests {
         let fatigue = derive_description_variants("Fatigue");
         assert!(fatigue.iter().any(|variant| variant.term == "exhausted"));
         assert!(fatigue.iter().any(|variant| variant.term == "no energy"));
+
+        let poor_sleep = derive_description_variants("Poor sleep");
+        assert!(poor_sleep
+            .iter()
+            .any(|variant| variant.term == "sleep poor"));
 
         let palpitations = derive_description_variants("Palpitations");
         assert!(palpitations
