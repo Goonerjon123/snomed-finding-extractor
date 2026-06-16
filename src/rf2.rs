@@ -972,7 +972,12 @@ fn morphology_variants(term: &str) -> Vec<String> {
 
 fn clinical_phrase_variants(term: &str) -> Vec<String> {
     let mut variants = Vec::new();
-    if let Some((_, suffix)) = term.split_once(" - ") {
+    if let Some((prefix, suffix)) = term.split_once(" - ") {
+        let prefix = normalize_term(prefix);
+        if is_safe_concise_clinical_head(&prefix) {
+            variants.push(prefix);
+        }
+
         let suffix = normalize_term(suffix);
         if is_safe_context_trimmed_phrase(&suffix) {
             variants.push(suffix);
@@ -993,6 +998,7 @@ fn clinical_phrase_variants(term: &str) -> Vec<String> {
     variants.extend(descriptor_final_clinical_variants(normalized));
     variants.extend(prepositionless_site_variants(normalized));
     variants.extend(positive_sign_variants(normalized));
+    variants.extend(concise_causal_phrase_variants(normalized));
 
     if let Some(function) = normalized.strip_prefix("impaired ") {
         let function = function.trim();
@@ -1059,6 +1065,48 @@ fn clinical_phrase_variants(term: &str) -> Vec<String> {
     }
 
     variants
+}
+
+fn concise_causal_phrase_variants(normalized: &str) -> Vec<String> {
+    for marker in [" due to ", " secondary to ", " caused by "] {
+        if let Some(base) = normalized.split_once(marker).map(|(base, _)| base.trim()) {
+            if is_safe_concise_clinical_head(base) {
+                return vec![base.to_string()];
+            }
+        }
+    }
+
+    Vec::new()
+}
+
+fn is_safe_concise_clinical_head(value: &str) -> bool {
+    let words = value
+        .split(' ')
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>();
+    let alnum_count = value.chars().filter(|ch| ch.is_alphanumeric()).count();
+
+    !words.is_empty()
+        && words.len() <= 4
+        && alnum_count >= 7
+        && words
+            .iter()
+            .all(|word| word.chars().all(|ch| ch.is_ascii_alphabetic()))
+        && !words.iter().any(|word| {
+            matches!(
+                *word,
+                "abnormality"
+                    | "change"
+                    | "condition"
+                    | "disorder"
+                    | "finding"
+                    | "movement"
+                    | "problem"
+                    | "sign"
+                    | "state"
+                    | "symptom"
+            )
+        })
 }
 
 fn decreased_reduced_variants(normalized: &str) -> Vec<String> {
@@ -2030,6 +2078,29 @@ mod tests {
         assert!(!unsafe_derived
             .iter()
             .any(|variant| variant.term == "movement"));
+    }
+
+    #[test]
+    fn derives_concise_clinical_heads_from_explanatory_descriptions() {
+        let hyphenated = derive_description_variants(
+            "Papilledema - optic disc edema due to raised intracranial pressure",
+        );
+        assert!(hyphenated
+            .iter()
+            .any(|variant| variant.term == "papilledema"
+                && variant.source == "openehr-description-clinical-phrase-variant"
+                && !variant.allow_ambiguous));
+
+        let causal =
+            derive_description_variants("Papilloedema due to raised intracranial pressure");
+        assert!(causal.iter().any(|variant| variant.term == "papilloedema"
+            && variant.source == "openehr-description-clinical-phrase-variant"
+            && !variant.allow_ambiguous));
+
+        let vague = derive_description_variants("Movement disorder due to disease");
+        assert!(!vague
+            .iter()
+            .any(|variant| variant.term == "movement disorder"));
     }
 
     #[test]

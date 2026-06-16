@@ -290,6 +290,13 @@ fn suppresses_peripheral_vascular_exam_observable_false_positives() {
         ),
         observable_concept("9964006", "Flexion", &[("flexion", false)]),
         observable_concept("63448001", "Gait", &[("gait", false)]),
+        observable_concept("87572000", "Reflex", &[("reflex", false)]),
+        observable_concept("85352007", "Coordination", &[("coordination", false)]),
+        observable_concept(
+            "364417002",
+            "Movement of neck",
+            &[("movement of neck", false)],
+        ),
     ]);
 
     let first = extractor
@@ -329,7 +336,7 @@ fn suppresses_peripheral_vascular_exam_observable_false_positives() {
 
     let second = extractor
         .extract_observables(ObservableExtractRequest {
-            objective: "Distal pulses + sensation intact, CRT brisk. ROM limited by swelling. Antalgic gait. Flexion reduced. Pulse 96. R 18."
+            objective: "Distal pulses + sensation intact, CRT brisk. Reflexes symmetrical. Coordination + gait normal. Neck - paraspinal tenderness, full ROM. Antalgic gait. Flexion reduced. Pulse 96. R 18."
                 .to_string(),
             include_suppressed: true,
             refset_id: Some("fixture-observables".to_string()),
@@ -349,7 +356,17 @@ fn suppresses_peripheral_vascular_exam_observable_false_positives() {
     assert!(!positives.contains(&("404980009", "ROM")));
     assert!(!positives.contains(&("9964006", "Flexion")));
     assert!(!positives.contains(&("63448001", "gait")));
-    for concept_id in ["404980009", "9964006", "63448001"] {
+    assert!(!positives.contains(&("87572000", "Reflexes")));
+    assert!(!positives.contains(&("85352007", "Coordination")));
+    assert!(!positives.contains(&("364417002", "Neck - paraspinal tenderness, full ROM")));
+    for concept_id in [
+        "404980009",
+        "9964006",
+        "63448001",
+        "87572000",
+        "85352007",
+        "364417002",
+    ] {
         assert!(
             second.suppressed.iter().any(|item| {
                 item.concept_id == concept_id

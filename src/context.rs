@@ -35,6 +35,7 @@ struct Token {
 /// its last token.
 #[derive(Debug)]
 struct SentenceView {
+    field: SoapField,
     tokens: Vec<Token>,
     span_first: usize,
     span_after: usize,
@@ -771,6 +772,7 @@ fn sentence_view(
         .unwrap_or(tokens.len());
 
     SentenceView {
+        field,
         tokens,
         span_first,
         span_after: span_after.max(span_first),
@@ -922,8 +924,74 @@ fn negation_cue_applies(view: &SentenceView) -> bool {
     };
 
     let gap = cue_end..view.span_first;
+    if view.field == SoapField::Objective
+        && objective_exam_result_starts_at_match(view)
+        && gap.clone().any(|index| {
+            has_digit(&view.tokens[index])
+                || view.tokens[index].list_separator_before
+                || view.tokens[index].list_separator_after
+        })
+    {
+        return false;
+    }
+
     tight_gap_is_clear(&view.tokens, gap.clone(), TIGHT_GAP_ALLOW, view.span_first)
         || direct_negation_modifier_gap_is_clear(&view.tokens, gap, view.span_first)
+}
+
+fn objective_exam_result_starts_at_match(view: &SentenceView) -> bool {
+    let mut index = view.span_after;
+    let limit = (view.span_after + 4).min(view.tokens.len());
+    while index < limit {
+        let token = view.tokens[index].text.as_str();
+        if objective_exam_result_status_token(token) || has_digit(&view.tokens[index]) {
+            return true;
+        }
+        if !objective_exam_shared_feature_token(token) && !objective_exam_result_bridge_token(token)
+        {
+            return false;
+        }
+        index += 1;
+    }
+
+    false
+}
+
+fn objective_exam_result_status_token(token: &str) -> bool {
+    matches!(
+        token,
+        "normal"
+            | "clear"
+            | "intact"
+            | "symmetrical"
+            | "symmetric"
+            | "full"
+            | "present"
+            | "palpable"
+            | "pulsatile"
+            | "regular"
+            | "equal"
+    )
+}
+
+fn objective_exam_shared_feature_token(token: &str) -> bool {
+    matches!(
+        token,
+        "coordination"
+            | "gait"
+            | "power"
+            | "reflex"
+            | "reflexes"
+            | "range"
+            | "movement"
+            | "rom"
+            | "sensation"
+            | "tone"
+    )
+}
+
+fn objective_exam_result_bridge_token(token: &str) -> bool {
+    matches!(token, "and" | "or" | "plus" | "is" | "are")
 }
 
 fn direct_negation_modifier_gap_is_clear(
@@ -1273,6 +1341,17 @@ mod tests {
             "AV nipping",
         );
         assert!(decision.accepted);
+    }
+
+    #[test]
+    fn objective_parenthetical_negation_does_not_leak_to_normal_exam_results() {
+        let text =
+            "Fundi normal (no papilloedema), power 5/5, reflexes symmetrical, coordination + gait normal.";
+
+        for target in ["reflexes", "coordination", "gait"] {
+            let decision = classify(SoapField::Objective, text, target);
+            assert!(decision.accepted, "expected acceptance for {target}");
+        }
     }
 
     #[test]

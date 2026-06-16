@@ -3,12 +3,10 @@ use crate::error::{ExtractorError, Result};
 use crate::matcher::{RawMatch, TerminologyMatcher};
 use crate::model::{
     AssertionStatus, BodySiteMatch, DiagnosisExtractRequest, ExaminationFindingsExtractRequest,
-    ExtractRequest, ExtractResponse, FindingMatch, ObservableExtractRequest, SoapField,
-    SuppressedMatch,
+    ExtractRequest, ExtractResponse, FindingMatch, MeasuredValue, ObservableExtractRequest,
+    SoapField, SuppressedMatch,
 };
-use crate::normalization::{
-    is_normalized_word_boundary, normalize_clinical_text, normalize_term, NormalizedText,
-};
+use crate::normalization::{normalize_clinical_text, normalize_term, NormalizedText};
 use crate::terminology::TerminologyArtefact;
 use crate::{ENGINE_VERSION, RULESET_VERSION};
 use std::time::Instant;
@@ -234,46 +232,265 @@ fn materialize_non_affirmed_match(
         )
 }
 
-struct NormalExamFeature {
+#[derive(Debug, Clone, Copy)]
+struct ExamResultStatus {
+    phrase: &'static str,
+    assertion: AssertionStatus,
+}
+
+struct StructuredExamFeature {
+    concept_id: &'static str,
+    preferred_term: &'static str,
+    subjects: &'static [&'static str],
+    statuses_after: &'static [ExamResultStatus],
+    statuses_before: &'static [ExamResultStatus],
+}
+
+#[derive(Debug, Clone)]
+struct ExamToken {
+    text: String,
+    normalized_start: usize,
+    normalized_end: usize,
+    orig_start: usize,
+    orig_end: usize,
+}
+
+struct StandaloneExamFeature {
     concept_id: &'static str,
     preferred_term: &'static str,
     patterns: &'static [&'static str],
+    assertion: AssertionStatus,
 }
 
-const NORMAL_EXAM_FEATURES: &[NormalExamFeature] = &[
-    NormalExamFeature {
+struct NegatedExamSign {
+    concept_id: &'static str,
+    preferred_term: &'static str,
+    heads: &'static [&'static str],
+    allow_anatomical_modifiers: bool,
+}
+
+const STATUS_NORMAL: &[ExamResultStatus] = &[ExamResultStatus {
+    phrase: "normal",
+    assertion: AssertionStatus::Normal,
+}];
+
+const STATUS_CLEAR: &[ExamResultStatus] = &[ExamResultStatus {
+    phrase: "clear",
+    assertion: AssertionStatus::Normal,
+}];
+
+const STATUS_INTACT_OR_NORMAL: &[ExamResultStatus] = &[
+    ExamResultStatus {
+        phrase: "intact",
+        assertion: AssertionStatus::Normal,
+    },
+    ExamResultStatus {
+        phrase: "normal",
+        assertion: AssertionStatus::Normal,
+    },
+];
+
+const STATUS_SYMMETRICAL_OR_NORMAL: &[ExamResultStatus] = &[
+    ExamResultStatus {
+        phrase: "symmetrical",
+        assertion: AssertionStatus::Normal,
+    },
+    ExamResultStatus {
+        phrase: "symmetric",
+        assertion: AssertionStatus::Normal,
+    },
+    ExamResultStatus {
+        phrase: "normal",
+        assertion: AssertionStatus::Normal,
+    },
+    ExamResultStatus {
+        phrase: "present",
+        assertion: AssertionStatus::Normal,
+    },
+];
+
+const STATUS_FULL_OR_NORMAL: &[ExamResultStatus] = &[
+    ExamResultStatus {
+        phrase: "full",
+        assertion: AssertionStatus::Normal,
+    },
+    ExamResultStatus {
+        phrase: "normal",
+        assertion: AssertionStatus::Normal,
+    },
+];
+
+const STATUS_SNT_OR_SOFT_NONTENDER: &[ExamResultStatus] = &[
+    ExamResultStatus {
+        phrase: "snt",
+        assertion: AssertionStatus::Normal,
+    },
+    ExamResultStatus {
+        phrase: "soft non tender",
+        assertion: AssertionStatus::Normal,
+    },
+    ExamResultStatus {
+        phrase: "soft and non tender",
+        assertion: AssertionStatus::Normal,
+    },
+    ExamResultStatus {
+        phrase: "soft nontender",
+        assertion: AssertionStatus::Normal,
+    },
+];
+
+const STATUS_NONTENDER: &[ExamResultStatus] = &[
+    ExamResultStatus {
+        phrase: "non tender",
+        assertion: AssertionStatus::Negated,
+    },
+    ExamResultStatus {
+        phrase: "nontender",
+        assertion: AssertionStatus::Negated,
+    },
+];
+
+const STATUS_PULSATILE: &[ExamResultStatus] = &[ExamResultStatus {
+    phrase: "pulsatile",
+    assertion: AssertionStatus::Normal,
+}];
+
+const STRUCTURED_EXAM_FEATURES: &[StructuredExamFeature] = &[
+    StructuredExamFeature {
         concept_id: "271660002",
         preferred_term: "Heart sounds",
-        patterns: &[
-            "hs normal",
-            "heart sound normal",
-            "heart sounds normal",
-            "heart sounds are normal",
-        ],
+        subjects: &["hs", "heart sound", "heart sounds"],
+        statuses_after: STATUS_NORMAL,
+        statuses_before: &[],
     },
-    NormalExamFeature {
+    StructuredExamFeature {
         concept_id: "364060002",
         preferred_term: "Chest auscultation feature",
-        patterns: &[
-            "chest clear",
-            "chest is clear",
-            "lungs clear",
-            "lungs are clear",
-        ],
+        subjects: &["chest", "lung", "lungs"],
+        statuses_after: STATUS_CLEAR,
+        statuses_before: &[],
     },
-    NormalExamFeature {
+    StructuredExamFeature {
         concept_id: "271911005",
         preferred_term: "Abdominal examination finding",
-        patterns: &[
-            "abdomen snt",
-            "abdominal snt",
-            "abdomen soft non tender",
-            "abdominal soft non tender",
-            "abdomen soft and non tender",
-            "abdominal soft and non tender",
-            "abdomen soft nontender",
-            "abdominal soft nontender",
-        ],
+        subjects: &["abdomen", "abdominal"],
+        statuses_after: STATUS_SNT_OR_SOFT_NONTENDER,
+        statuses_before: &[],
+    },
+    StructuredExamFeature {
+        concept_id: "164734008",
+        preferred_term: "Fundoscopy normal",
+        subjects: &["fundi", "fundus", "fundoscopy"],
+        statuses_after: STATUS_NORMAL,
+        statuses_before: &[],
+    },
+    StructuredExamFeature {
+        concept_id: "246581004",
+        preferred_term: "Peripheral reflex",
+        subjects: &["reflex", "reflexes"],
+        statuses_after: STATUS_SYMMETRICAL_OR_NORMAL,
+        statuses_before: &[],
+    },
+    StructuredExamFeature {
+        concept_id: "363844006",
+        preferred_term: "Pattern of coordination",
+        subjects: &["coordination"],
+        statuses_after: STATUS_NORMAL,
+        statuses_before: &[],
+    },
+    StructuredExamFeature {
+        concept_id: "63448001",
+        preferred_term: "Gait",
+        subjects: &["gait"],
+        statuses_after: STATUS_NORMAL,
+        statuses_before: &[],
+    },
+    StructuredExamFeature {
+        concept_id: "404980009",
+        preferred_term: "Spine - range of movement",
+        subjects: &["range of movement"],
+        statuses_after: STATUS_FULL_OR_NORMAL,
+        statuses_before: STATUS_FULL_OR_NORMAL,
+    },
+    StructuredExamFeature {
+        concept_id: "301399007",
+        preferred_term: "Musculoskeletal tenderness",
+        subjects: &["temporal artery", "temporal arteries"],
+        statuses_after: STATUS_NONTENDER,
+        statuses_before: &[],
+    },
+    StructuredExamFeature {
+        concept_id: "422176008",
+        preferred_term: "Temporal pulse, function",
+        subjects: &["temporal artery", "temporal arteries"],
+        statuses_after: STATUS_PULSATILE,
+        statuses_before: &[],
+    },
+];
+
+const STANDALONE_EXAM_FEATURES: &[StandaloneExamFeature] = &[
+    StandaloneExamFeature {
+        concept_id: "248233002",
+        preferred_term: "Mental alertness",
+        patterns: &["alert"],
+        assertion: AssertionStatus::Normal,
+    },
+    StandaloneExamFeature {
+        concept_id: "43173001",
+        preferred_term: "Orientation",
+        patterns: &["orientated", "oriented"],
+        assertion: AssertionStatus::Normal,
+    },
+];
+
+const NEGATED_EXAM_SIGNS: &[NegatedExamSign] = &[
+    NegatedExamSign {
+        concept_id: "423488006",
+        preferred_term: "Papilledema - optic disc edema due to raised intracranial pressure",
+        heads: &["papilloedema", "papilledema"],
+        allow_anatomical_modifiers: false,
+    },
+    NegatedExamSign {
+        concept_id: "301399007",
+        preferred_term: "Musculoskeletal tenderness",
+        heads: &["tenderness"],
+        allow_anatomical_modifiers: true,
+    },
+    NegatedExamSign {
+        concept_id: "56208002",
+        preferred_term: "Ulcer",
+        heads: &["ulcer", "ulcers"],
+        allow_anatomical_modifiers: true,
+    },
+    NegatedExamSign {
+        concept_id: "250087009",
+        preferred_term: "Joint deformity",
+        heads: &["deformity", "deformities"],
+        allow_anatomical_modifiers: true,
+    },
+    NegatedExamSign {
+        concept_id: "24887001",
+        preferred_term: "Maceration",
+        heads: &["maceration"],
+        allow_anatomical_modifiers: true,
+    },
+    NegatedExamSign {
+        concept_id: "3716002",
+        preferred_term: "Goiter",
+        heads: &["goiter", "goitre"],
+        allow_anatomical_modifiers: true,
+    },
+    NegatedExamSign {
+        concept_id: "30746006",
+        preferred_term: "Lymphadenopathy",
+        heads: &["lymphadenopathy"],
+        allow_anatomical_modifiers: true,
+    },
+    NegatedExamSign {
+        concept_id: "247441003",
+        preferred_term: "Erythema",
+        heads: &["erythema"],
+        allow_anatomical_modifiers: true,
     },
 ];
 
@@ -283,62 +500,648 @@ fn add_normal_examination_matches(
     matches: &mut Vec<FindingMatch>,
 ) {
     let normalized = normalize_clinical_text(field_text, field);
-    for feature in NORMAL_EXAM_FEATURES {
-        for pattern in feature.patterns {
-            add_normal_examination_pattern_match(
-                field,
-                field_text,
-                &normalized,
-                feature,
-                pattern,
-                matches,
-            );
+    let tokens = exam_tokens(&normalized);
+
+    add_structured_feature_status_matches(field, field_text, &normalized, &tokens, matches);
+    add_cranial_nerve_exam_matches(field, field_text, &normalized, &tokens, matches);
+    add_power_score_exam_matches(field, field_text, &normalized, &tokens, matches);
+    add_standalone_exam_matches(field, field_text, &normalized, &tokens, matches);
+    add_negated_exam_sign_matches(field, field_text, &normalized, &tokens, matches);
+    add_anatomical_tenderness_matches(field, field_text, &normalized, &tokens, matches);
+}
+
+fn exam_tokens(normalized: &NormalizedText) -> Vec<ExamToken> {
+    let text = normalized.text.as_str();
+    let mut tokens = Vec::new();
+    let mut cursor = 0;
+
+    while cursor < text.len() {
+        let remaining = &text[cursor..];
+        let token_start = match remaining.find(|ch| ch != ' ') {
+            Some(offset) => cursor + offset,
+            None => break,
+        };
+        let token_end = text[token_start..]
+            .find(' ')
+            .map(|offset| token_start + offset)
+            .unwrap_or(text.len());
+
+        if let Some((orig_start, orig_end)) = normalized.original_range(token_start, token_end) {
+            tokens.push(ExamToken {
+                text: text[token_start..token_end].to_string(),
+                normalized_start: token_start,
+                normalized_end: token_end,
+                orig_start,
+                orig_end,
+            });
+        }
+
+        cursor = token_end;
+    }
+
+    tokens
+}
+
+fn add_structured_feature_status_matches(
+    field: SoapField,
+    field_text: &str,
+    normalized: &NormalizedText,
+    tokens: &[ExamToken],
+    matches: &mut Vec<FindingMatch>,
+) {
+    for feature in STRUCTURED_EXAM_FEATURES {
+        for subject_start in 0..tokens.len() {
+            for subject in feature.subjects {
+                let Some(subject_end) = match_phrase_at(tokens, subject_start, subject) else {
+                    continue;
+                };
+
+                if let Some((status_start, status_end, status)) =
+                    find_status_after_subject(tokens, subject_end, feature.statuses_after)
+                {
+                    add_structured_exam_match_from_tokens(
+                        field,
+                        field_text,
+                        normalized,
+                        tokens,
+                        StructuredExamMatchSpec {
+                            start_token: subject_start,
+                            end_token: status_end,
+                            concept_id: feature.concept_id,
+                            preferred_term: feature.preferred_term,
+                            assertion: status.assertion,
+                            value: None,
+                        },
+                        matches,
+                    );
+
+                    // Keep the status_start binding meaningful for debug/readability.
+                    let _ = status_start;
+                }
+
+                if let Some((status_start, _status_end, status)) =
+                    find_status_before_subject(tokens, subject_start, feature.statuses_before)
+                {
+                    add_structured_exam_match_from_tokens(
+                        field,
+                        field_text,
+                        normalized,
+                        tokens,
+                        StructuredExamMatchSpec {
+                            start_token: status_start,
+                            end_token: subject_end,
+                            concept_id: feature.concept_id,
+                            preferred_term: feature.preferred_term,
+                            assertion: status.assertion,
+                            value: None,
+                        },
+                        matches,
+                    );
+                }
+            }
         }
     }
 }
 
-fn add_normal_examination_pattern_match(
+fn add_cranial_nerve_exam_matches(
     field: SoapField,
     field_text: &str,
     normalized: &NormalizedText,
-    feature: &NormalExamFeature,
-    pattern: &str,
+    tokens: &[ExamToken],
     matches: &mut Vec<FindingMatch>,
 ) {
-    for (start, _) in normalized.text.match_indices(pattern) {
-        let end = start + pattern.len();
-        if !is_normalized_word_boundary(&normalized.text, start, end) {
-            continue;
-        }
-        let Some((span_start, span_end)) = normalized.original_range(start, end) else {
+    for start in 0..tokens.len() {
+        let Some(subject_end) = cranial_nerve_subject_end(tokens, start) else {
             continue;
         };
-        if matches.iter().any(|item| {
-            item.field == field
-                && spans_overlap(span_start, span_end, item.span_start, item.span_end)
-        }) {
+        let Some((_status_start, status_end, status)) =
+            find_status_after_subject(tokens, subject_end, STATUS_INTACT_OR_NORMAL)
+        else {
+            continue;
+        };
+
+        add_structured_exam_match_from_tokens(
+            field,
+            field_text,
+            normalized,
+            tokens,
+            StructuredExamMatchSpec {
+                start_token: start,
+                end_token: status_end,
+                concept_id: "246569003",
+                preferred_term: "Function of specific cranial nerves",
+                assertion: status.assertion,
+                value: None,
+            },
+            matches,
+        );
+    }
+}
+
+fn add_power_score_exam_matches(
+    field: SoapField,
+    field_text: &str,
+    normalized: &NormalizedText,
+    tokens: &[ExamToken],
+    matches: &mut Vec<FindingMatch>,
+) {
+    for start in 0..tokens.len() {
+        let Some(subject_end) = match_any_phrase_at(tokens, start, &["power", "muscle power"])
+        else {
+            continue;
+        };
+        let Some(value_token) = tokens.get(subject_end) else {
+            continue;
+        };
+        if !looks_like_exam_score(value_token.text.as_str()) {
             continue;
         }
 
-        matches.push(FindingMatch {
-            concept_id: feature.concept_id.to_string(),
-            preferred_term: feature.preferred_term.to_string(),
+        let assertion = if score_is_normal(value_token.text.as_str()) {
+            AssertionStatus::Normal
+        } else {
+            AssertionStatus::Affirmed
+        };
+        let value = MeasuredValue {
+            text: field_text[value_token.orig_start..value_token.orig_end].to_string(),
+            unit: None,
+            span_start: value_token.orig_start,
+            span_end: value_token.orig_end,
+        };
+
+        add_structured_exam_match_from_tokens(
             field,
-            span_start,
-            span_end,
-            matched_text: field_text[span_start..span_end].to_string(),
-            normalized_match: (*pattern).to_string(),
-            term_source: "built-in-normal-exam-feature".to_string(),
-            value: None,
-            body_site: None,
-            assertion: AssertionStatus::Normal,
-            rule_ids: vec!["ASSERT_NORMAL_PATIENT_EXAMINATION_FINDING".to_string()],
-            explanation: format!(
-                "Reported as a normal patient examination finding in the {} field.",
-                field.as_str()
-            ),
-        });
+            field_text,
+            normalized,
+            tokens,
+            StructuredExamMatchSpec {
+                start_token: start,
+                end_token: subject_end + 1,
+                concept_id: "249948009",
+                preferred_term: "Grade of muscle power",
+                assertion,
+                value: Some(value),
+            },
+            matches,
+        );
     }
+}
+
+fn add_standalone_exam_matches(
+    field: SoapField,
+    field_text: &str,
+    normalized: &NormalizedText,
+    tokens: &[ExamToken],
+    matches: &mut Vec<FindingMatch>,
+) {
+    for feature in STANDALONE_EXAM_FEATURES {
+        for start in 0..tokens.len() {
+            for pattern in feature.patterns {
+                let Some(end) = match_phrase_at(tokens, start, pattern) else {
+                    continue;
+                };
+                add_structured_exam_match_from_tokens(
+                    field,
+                    field_text,
+                    normalized,
+                    tokens,
+                    StructuredExamMatchSpec {
+                        start_token: start,
+                        end_token: end,
+                        concept_id: feature.concept_id,
+                        preferred_term: feature.preferred_term,
+                        assertion: feature.assertion,
+                        value: None,
+                    },
+                    matches,
+                );
+            }
+        }
+    }
+}
+
+fn add_negated_exam_sign_matches(
+    field: SoapField,
+    field_text: &str,
+    normalized: &NormalizedText,
+    tokens: &[ExamToken],
+    matches: &mut Vec<FindingMatch>,
+) {
+    for negation_index in 0..tokens.len() {
+        if !exam_negation_token(tokens[negation_index].text.as_str()) {
+            continue;
+        }
+
+        let search_end = (negation_index + 7).min(tokens.len());
+        for head_start in negation_index + 1..search_end {
+            for sign in NEGATED_EXAM_SIGNS {
+                for head in sign.heads {
+                    let Some(head_end) = match_phrase_at(tokens, head_start, head) else {
+                        continue;
+                    };
+                    if !negated_exam_sign_gap_is_clear(
+                        tokens,
+                        negation_index + 1,
+                        head_start,
+                        sign.allow_anatomical_modifiers,
+                    ) {
+                        continue;
+                    }
+
+                    add_structured_exam_match_from_tokens(
+                        field,
+                        field_text,
+                        normalized,
+                        tokens,
+                        StructuredExamMatchSpec {
+                            start_token: negation_index,
+                            end_token: head_end,
+                            concept_id: sign.concept_id,
+                            preferred_term: sign.preferred_term,
+                            assertion: AssertionStatus::Negated,
+                            value: None,
+                        },
+                        matches,
+                    );
+                }
+            }
+        }
+    }
+}
+
+fn add_anatomical_tenderness_matches(
+    field: SoapField,
+    field_text: &str,
+    normalized: &NormalizedText,
+    tokens: &[ExamToken],
+    matches: &mut Vec<FindingMatch>,
+) {
+    for head_index in 0..tokens.len() {
+        if !matches!(tokens[head_index].text.as_str(), "tenderness" | "tender") {
+            continue;
+        }
+        if head_index > 0 && matches!(tokens[head_index - 1].text.as_str(), "non" | "not" | "no") {
+            continue;
+        }
+
+        let mut start = head_index;
+        let lower = head_index.saturating_sub(4);
+        while start > lower
+            && anatomical_exam_modifier_token(tokens[start - 1].text.as_str())
+            && !exam_phrase_boundary_between(
+                field_text,
+                tokens[start - 1].orig_end,
+                tokens[start].orig_start,
+            )
+        {
+            start -= 1;
+        }
+        if start == head_index {
+            continue;
+        }
+        if start > 0 && exam_negation_token(tokens[start - 1].text.as_str()) {
+            continue;
+        }
+
+        add_structured_exam_match_from_tokens(
+            field,
+            field_text,
+            normalized,
+            tokens,
+            StructuredExamMatchSpec {
+                start_token: start,
+                end_token: head_index + 1,
+                concept_id: "301399007",
+                preferred_term: "Musculoskeletal tenderness",
+                assertion: AssertionStatus::Affirmed,
+                value: None,
+            },
+            matches,
+        );
+    }
+}
+
+struct StructuredExamMatchSpec<'a> {
+    start_token: usize,
+    end_token: usize,
+    concept_id: &'a str,
+    preferred_term: &'a str,
+    assertion: AssertionStatus,
+    value: Option<MeasuredValue>,
+}
+
+fn add_structured_exam_match_from_tokens(
+    field: SoapField,
+    field_text: &str,
+    normalized: &NormalizedText,
+    tokens: &[ExamToken],
+    spec: StructuredExamMatchSpec<'_>,
+    matches: &mut Vec<FindingMatch>,
+) {
+    let StructuredExamMatchSpec {
+        start_token,
+        end_token,
+        concept_id,
+        preferred_term,
+        assertion,
+        value,
+    } = spec;
+
+    if start_token >= end_token || end_token > tokens.len() {
+        return;
+    }
+    let span_start = tokens[start_token].orig_start;
+    let span_end = tokens[end_token - 1].orig_end;
+    if !should_add_structured_exam_match(matches, field, concept_id, span_start, span_end) {
+        return;
+    }
+
+    let normalized_start = tokens[start_token].normalized_start;
+    let normalized_end = tokens[end_token - 1].normalized_end;
+    let normalized_match = normalized.text[normalized_start..normalized_end].to_string();
+    let rule_id = structured_exam_rule_id(assertion).to_string();
+    matches.push(FindingMatch {
+        concept_id: concept_id.to_string(),
+        preferred_term: preferred_term.to_string(),
+        field,
+        span_start,
+        span_end,
+        matched_text: field_text[span_start..span_end].to_string(),
+        normalized_match,
+        term_source: "built-in-structured-exam-feature".to_string(),
+        value,
+        body_site: None,
+        assertion,
+        rule_ids: vec![rule_id],
+        explanation: structured_exam_explanation(field, assertion),
+    });
+}
+
+fn should_add_structured_exam_match(
+    matches: &[FindingMatch],
+    field: SoapField,
+    concept_id: &str,
+    span_start: usize,
+    span_end: usize,
+) -> bool {
+    !matches.iter().any(|item| {
+        item.field == field
+            && ((item.concept_id == concept_id
+                && spans_overlap(span_start, span_end, item.span_start, item.span_end))
+                || (!item
+                    .term_source
+                    .starts_with("built-in-structured-exam-feature")
+                    && spans_overlap(span_start, span_end, item.span_start, item.span_end)))
+    })
+}
+
+fn structured_exam_rule_id(assertion: AssertionStatus) -> &'static str {
+    match assertion {
+        AssertionStatus::Normal => "ASSERT_NORMAL_PATIENT_EXAMINATION_FINDING",
+        AssertionStatus::Negated => "ASSERT_NEGATED_PATIENT_EXAMINATION_FINDING",
+        _ => "ASSERT_AFFIRMED_PATIENT_EXAMINATION_FINDING",
+    }
+}
+
+fn structured_exam_explanation(field: SoapField, assertion: AssertionStatus) -> String {
+    match assertion {
+        AssertionStatus::Normal => format!(
+            "Reported as a normal patient examination finding in the {} field.",
+            field.as_str()
+        ),
+        AssertionStatus::Negated => format!(
+            "Reported as a negated patient examination finding in the {} field.",
+            field.as_str()
+        ),
+        _ => format!(
+            "Accepted as an affirmed patient examination finding in the {} field; no suppression rule fired.",
+            field.as_str()
+        ),
+    }
+}
+
+fn match_any_phrase_at(tokens: &[ExamToken], start: usize, phrases: &[&str]) -> Option<usize> {
+    phrases
+        .iter()
+        .find_map(|phrase| match_phrase_at(tokens, start, phrase))
+}
+
+fn match_phrase_at(tokens: &[ExamToken], start: usize, phrase: &str) -> Option<usize> {
+    let phrase_tokens = phrase.split(' ').collect::<Vec<_>>();
+    if start + phrase_tokens.len() > tokens.len() {
+        return None;
+    }
+    phrase_tokens
+        .iter()
+        .enumerate()
+        .all(|(offset, expected)| tokens[start + offset].text == *expected)
+        .then_some(start + phrase_tokens.len())
+}
+
+fn find_status_after_subject(
+    tokens: &[ExamToken],
+    subject_end: usize,
+    statuses: &[ExamResultStatus],
+) -> Option<(usize, usize, ExamResultStatus)> {
+    if statuses.is_empty() {
+        return None;
+    }
+
+    let mut search_start = subject_end;
+    while tokens
+        .get(search_start)
+        .map(|token| structured_exam_linking_token(token.text.as_str()))
+        .unwrap_or(false)
+    {
+        search_start += 1;
+    }
+
+    let search_limit = (search_start + 4).min(tokens.len());
+    for status_start in search_start..search_limit {
+        if status_start > search_start
+            && !tokens[search_start..status_start]
+                .iter()
+                .all(|token| structured_exam_status_bridge_token(token.text.as_str()))
+        {
+            break;
+        }
+        for status in statuses {
+            if let Some(status_end) = match_phrase_at(tokens, status_start, status.phrase) {
+                return Some((status_start, status_end, *status));
+            }
+        }
+    }
+
+    None
+}
+
+fn find_status_before_subject(
+    tokens: &[ExamToken],
+    subject_start: usize,
+    statuses: &[ExamResultStatus],
+) -> Option<(usize, usize, ExamResultStatus)> {
+    if statuses.is_empty() {
+        return None;
+    }
+
+    for status in statuses {
+        let len = status.phrase.split(' ').count();
+        if subject_start >= len {
+            let status_start = subject_start - len;
+            if let Some(status_end) = match_phrase_at(tokens, status_start, status.phrase) {
+                return Some((status_start, status_end, *status));
+            }
+        }
+    }
+
+    None
+}
+
+fn cranial_nerve_subject_end(tokens: &[ExamToken], start: usize) -> Option<usize> {
+    if tokens.get(start)?.text == "cn" {
+        let mut index = start + 1;
+        while index < tokens.len() && roman_or_arabic_numeral(tokens[index].text.as_str()) {
+            index += 1;
+        }
+        return (index > start + 1).then_some(index);
+    }
+
+    if let Some(end) = match_any_phrase_at(tokens, start, &["cranial nerve", "cranial nerves"]) {
+        return Some(end);
+    }
+
+    None
+}
+
+fn roman_or_arabic_numeral(token: &str) -> bool {
+    token.chars().all(|ch| ch.is_ascii_digit())
+        || matches!(
+            token,
+            "i" | "ii" | "iii" | "iv" | "v" | "vi" | "vii" | "viii" | "ix" | "x" | "xi" | "xii"
+        )
+}
+
+fn looks_like_exam_score(token: &str) -> bool {
+    token.contains('/')
+        && token
+            .split('/')
+            .all(|part| part.chars().all(|ch| ch.is_ascii_digit()))
+}
+
+fn score_is_normal(token: &str) -> bool {
+    let mut parts = token.split('/');
+    let Some(left) = parts.next() else {
+        return false;
+    };
+    let Some(right) = parts.next() else {
+        return false;
+    };
+    parts.next().is_none() && left == right
+}
+
+fn exam_negation_token(token: &str) -> bool {
+    matches!(token, "no" | "without" | "nil")
+}
+
+fn negated_exam_sign_gap_is_clear(
+    tokens: &[ExamToken],
+    start: usize,
+    end: usize,
+    allow_anatomical_modifiers: bool,
+) -> bool {
+    tokens[start..end].iter().all(|token| {
+        matches!(
+            token.text.as_str(),
+            "any" | "evidence" | "of" | "sign" | "signs" | "and" | "or" | "nor"
+        ) || known_exam_sign_head(token.text.as_str())
+            || (allow_anatomical_modifiers && anatomical_exam_modifier_token(token.text.as_str()))
+    })
+}
+
+fn known_exam_sign_head(token: &str) -> bool {
+    NEGATED_EXAM_SIGNS
+        .iter()
+        .any(|sign| sign.heads.contains(&token))
+}
+
+fn structured_exam_linking_token(token: &str) -> bool {
+    matches!(token, "is" | "are" | "was" | "were")
+}
+
+fn structured_exam_status_bridge_token(token: &str) -> bool {
+    matches!(
+        token,
+        "and"
+            | "or"
+            | "plus"
+            | "both"
+            | "bilaterally"
+            | "coordination"
+            | "gait"
+            | "power"
+            | "reflex"
+            | "reflexes"
+            | "range"
+            | "movement"
+            | "tone"
+            | "sensation"
+            | "non"
+            | "tender"
+            | "nontender"
+    )
+}
+
+fn anatomical_exam_modifier_token(token: &str) -> bool {
+    matches!(
+        token,
+        "abdominal"
+            | "ankle"
+            | "arm"
+            | "back"
+            | "breast"
+            | "calf"
+            | "cervical"
+            | "chest"
+            | "elbow"
+            | "epigastric"
+            | "fossa"
+            | "foot"
+            | "genital"
+            | "hand"
+            | "hip"
+            | "iliac"
+            | "joint"
+            | "knee"
+            | "lumbar"
+            | "mastoid"
+            | "muscle"
+            | "neck"
+            | "paraspinal"
+            | "renal"
+            | "sacroiliac"
+            | "scalp"
+            | "skeletal"
+            | "spinal"
+            | "spine"
+            | "sternum"
+            | "temporal"
+            | "testicle"
+            | "testis"
+            | "thoracic"
+            | "wrist"
+    )
+}
+
+fn exam_phrase_boundary_between(text: &str, start: usize, end: usize) -> bool {
+    if start >= end || end > text.len() {
+        return false;
+    }
+    text[start..end].chars().any(|ch| {
+        matches!(
+            ch,
+            ':' | ';' | '.' | '\n' | '\r' | '-' | '\u{2013}' | '\u{2014}'
+        )
+    })
 }
 
 fn spans_overlap(left_start: usize, left_end: usize, right_start: usize, right_end: usize) -> bool {
@@ -513,13 +1316,21 @@ fn has_qualitative_neurovascular_context(raw: &RawMatch, field_text: &str) -> bo
 fn is_qualitative_exam_observable(raw: &RawMatch) -> bool {
     let preferred = normalize_term(&raw.preferred_term);
     preferred.contains("range of movement")
+        || preferred.starts_with("movement of ")
         || matches!(
             preferred.as_str(),
-            "flexion" | "extension" | "gait" | "movement"
+            "coordination" | "flexion" | "extension" | "gait" | "movement" | "reflex"
         )
         || matches!(
             raw.normalized_match.as_str(),
-            "rom" | "range of movement" | "flexion" | "extension" | "gait"
+            "coordination"
+                | "rom"
+                | "range of movement"
+                | "flexion"
+                | "extension"
+                | "gait"
+                | "reflex"
+                | "reflexes"
         )
 }
 
@@ -537,14 +1348,22 @@ fn has_qualitative_exam_context(raw: &RawMatch, field_text: &str) -> bool {
             "rom"
                 | "range"
                 | "movement"
+                | "coordination"
+                | "reflex"
+                | "reflexes"
                 | "limited"
                 | "reduced"
                 | "full"
                 | "painful"
+                | "normal"
+                | "symmetrical"
+                | "symmetric"
+                | "intact"
                 | "antalgic"
                 | "uncomfortable"
                 | "swelling"
                 | "discomfort"
+                | "tenderness"
         )
     })
 }
