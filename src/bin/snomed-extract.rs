@@ -27,6 +27,8 @@ enum Command {
         #[arg(long)]
         artefact: PathBuf,
         #[arg(long)]
+        body_site_artefact: Option<PathBuf>,
+        #[arg(long)]
         input: Option<PathBuf>,
         #[arg(long)]
         include_suppressed: bool,
@@ -125,10 +127,11 @@ fn main() -> Result<()> {
     match cli.command {
         Command::Extract {
             artefact,
+            body_site_artefact,
             input,
             include_suppressed,
         } => {
-            let extractor = load_extractor(&artefact)?;
+            let extractor = load_extractor(&artefact, body_site_artefact.as_ref())?;
             let mut request: ExtractRequest = serde_json::from_str(&read_input(input.as_ref())?)
                 .context("failed to parse extraction request JSON")?;
             request.include_suppressed |= include_suppressed;
@@ -140,7 +143,7 @@ fn main() -> Result<()> {
             input,
             include_suppressed,
         } => {
-            let extractor = load_extractor(&artefact)?;
+            let extractor = load_extractor(&artefact, None)?;
             let mut request: ObservableExtractRequest =
                 serde_json::from_str(&read_input(input.as_ref())?)
                     .context("failed to parse observable extraction request JSON")?;
@@ -153,7 +156,7 @@ fn main() -> Result<()> {
             input,
             include_suppressed,
         } => {
-            let extractor = load_extractor(&artefact)?;
+            let extractor = load_extractor(&artefact, None)?;
             let mut request: ExaminationFindingsExtractRequest =
                 serde_json::from_str(&read_input(input.as_ref())?)
                     .context("failed to parse examination findings extraction request JSON")?;
@@ -166,7 +169,7 @@ fn main() -> Result<()> {
             input,
             include_suppressed,
         } => {
-            let extractor = load_extractor(&artefact)?;
+            let extractor = load_extractor(&artefact, None)?;
             let mut request: DiagnosisExtractRequest =
                 serde_json::from_str(&read_input(input.as_ref())?)
                     .context("failed to parse diagnosis extraction request JSON")?;
@@ -208,7 +211,7 @@ fn main() -> Result<()> {
             artefact.write_pretty_json(output)?;
         }
         Command::AuditTerms { artefact } => {
-            let extractor = load_extractor(&artefact)?;
+            let extractor = load_extractor(&artefact, None)?;
             let dropped = extractor.dropped_ambiguous_terms();
             let report = AmbiguityReport {
                 refset_id: extractor.artefact().refset_id.clone(),
@@ -228,7 +231,7 @@ fn main() -> Result<()> {
             serde_json::to_writer_pretty(File::create(output)?, &cases)?;
         }
         Command::Evaluate { artefact, cases } => {
-            let extractor = load_extractor(&artefact)?;
+            let extractor = load_extractor(&artefact, None)?;
             let reader = BufReader::new(File::open(cases)?);
             let cases: Vec<SyntheticCase> = serde_json::from_reader(reader)?;
             let report = evaluate_cases(&extractor, &cases)?;
@@ -243,9 +246,21 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn load_extractor(path: &PathBuf) -> Result<Extractor> {
+fn load_extractor(path: &PathBuf, body_site_path: Option<&PathBuf>) -> Result<Extractor> {
     let artefact = TerminologyArtefact::from_path(path)?;
-    Extractor::new(artefact).context("failed to create extractor")
+    if let Some(body_site_path) = body_site_path {
+        let body_site_artefact =
+            TerminologyArtefact::from_path(body_site_path).with_context(|| {
+                format!(
+                    "failed to load body site artefact {}",
+                    body_site_path.display()
+                )
+            })?;
+        Extractor::new_with_body_sites(artefact, body_site_artefact)
+            .context("failed to create extractor")
+    } else {
+        Extractor::new(artefact).context("failed to create extractor")
+    }
 }
 
 fn read_input(path: Option<&PathBuf>) -> Result<String> {

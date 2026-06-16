@@ -1,6 +1,49 @@
 use snomed_finding_extractor::rf2::build_from_openehr_valueset;
-use snomed_finding_extractor::{Extractor, ObservableExtractRequest, SoapField};
+use snomed_finding_extractor::terminology::{ConceptEntry, TermVariant};
+use snomed_finding_extractor::{
+    AssertionStatus, Extractor, ObservableExtractRequest, SoapField, TerminologyArtefact,
+};
 use std::path::PathBuf;
+
+fn observable_extractor_with(concepts: Vec<ConceptEntry>) -> Extractor {
+    Extractor::new(TerminologyArtefact {
+        schema_version: 1,
+        terminology_version: "fixture-observables".to_string(),
+        source_release: "fixture".to_string(),
+        refset_id: "fixture-observables".to_string(),
+        generated_at_utc: "fixture".to_string(),
+        concepts,
+        artefact_hash: String::new(),
+    })
+    .unwrap()
+}
+
+fn observable_concept(
+    concept_id: &str,
+    preferred_term: &str,
+    variants: &[(&str, bool)],
+) -> ConceptEntry {
+    ConceptEntry {
+        concept_id: concept_id.to_string(),
+        active: true,
+        preferred_term: preferred_term.to_string(),
+        descriptions: vec![],
+        variants: variants
+            .iter()
+            .map(|(text, requires_numeric_value)| TermVariant {
+                text: text.to_string(),
+                source: if *requires_numeric_value {
+                    "openehr-observable-numeric-label".to_string()
+                } else {
+                    "fixture".to_string()
+                },
+                description_id: None,
+                allow_ambiguous: *requires_numeric_value,
+                requires_numeric_value: *requires_numeric_value,
+            })
+            .collect(),
+    }
+}
 
 #[test]
 fn extracts_observable_entities_from_objective_only_payload() {
@@ -232,4 +275,90 @@ fn extracts_numeric_observable_labels_only_before_values() {
             .count(),
         1
     );
+}
+
+#[test]
+fn suppresses_peripheral_vascular_exam_observable_false_positives() {
+    let extractor = observable_extractor_with(vec![
+        observable_concept("8499008", "Pulse", &[("pulse", false)]),
+        observable_concept("373713005", "Sensory perception", &[("sensation", false)]),
+        observable_concept("86290005", "Respiratory rate", &[("R", true)]),
+        observable_concept(
+            "404980009",
+            "Spine - range of movement",
+            &[("range of movement", false)],
+        ),
+        observable_concept("9964006", "Flexion", &[("flexion", false)]),
+        observable_concept("63448001", "Gait", &[("gait", false)]),
+    ]);
+
+    let first = extractor
+        .extract_observables(ObservableExtractRequest {
+            objective: "BM 9.8. Feet: skin intact, no ulcers/callus/deformity. DP + PT pulses palpable bilaterally. Monofilament - sensation reduced, absent at 4/10 sites R, 3/10 L. Vibration reduced to ankles.".to_string(),
+            include_suppressed: true,
+            refset_id: Some("fixture-observables".to_string()),
+            ..ObservableExtractRequest::default()
+        })
+        .unwrap();
+
+    assert!(first.matches.is_empty());
+    assert!(first.suppressed.iter().any(|item| {
+        item.concept_id == "8499008"
+            && item.matched_text == "pulses"
+            && item.assertion == AssertionStatus::Ambiguous
+            && item
+                .rule_ids
+                .contains(&"CTX_OBSERVABLE_PULSE_WITHOUT_NUMERIC_VALUE".to_string())
+    }));
+    assert!(first.suppressed.iter().any(|item| {
+        item.concept_id == "373713005"
+            && item.matched_text == "sensation"
+            && item.assertion == AssertionStatus::Ambiguous
+            && item
+                .rule_ids
+                .contains(&"CTX_OBSERVABLE_SENSATION_IN_EXAM_CONTEXT".to_string())
+    }));
+    assert!(first.suppressed.iter().any(|item| {
+        item.concept_id == "86290005"
+            && item.matched_text == "R"
+            && item.assertion == AssertionStatus::Ambiguous
+            && item
+                .rule_ids
+                .contains(&"CTX_OBSERVABLE_RESP_RATE_SIDE_LABEL".to_string())
+    }));
+
+    let second = extractor
+        .extract_observables(ObservableExtractRequest {
+            objective: "Distal pulses + sensation intact, CRT brisk. ROM limited by swelling. Antalgic gait. Flexion reduced. Pulse 96. R 18."
+                .to_string(),
+            include_suppressed: true,
+            refset_id: Some("fixture-observables".to_string()),
+            ..ObservableExtractRequest::default()
+        })
+        .unwrap();
+
+    let positives = second
+        .matches
+        .iter()
+        .map(|item| (item.concept_id.as_str(), item.matched_text.as_str()))
+        .collect::<Vec<_>>();
+    assert!(positives.contains(&("8499008", "Pulse")));
+    assert!(positives.contains(&("86290005", "R")));
+    assert!(!positives.contains(&("8499008", "pulses")));
+    assert!(!positives.contains(&("373713005", "sensation")));
+    assert!(!positives.contains(&("404980009", "ROM")));
+    assert!(!positives.contains(&("9964006", "Flexion")));
+    assert!(!positives.contains(&("63448001", "gait")));
+    for concept_id in ["404980009", "9964006", "63448001"] {
+        assert!(
+            second.suppressed.iter().any(|item| {
+                item.concept_id == concept_id
+                    && item.assertion == AssertionStatus::Ambiguous
+                    && item
+                        .rule_ids
+                        .contains(&"CTX_OBSERVABLE_QUALITATIVE_EXAM_CONTEXT".to_string())
+            }),
+            "expected qualitative exam suppression for {concept_id}"
+        );
+    }
 }

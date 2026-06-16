@@ -20,6 +20,14 @@ cargo run --bin snomed-extract -- build-openehr `
   --output "out\symptoms-20260201.artefact.json"
 ```
 
+Build the Body Site artefact used by the symptom endpoint for post-coordination-like grouping:
+
+```powershell
+cargo run --bin snomed-extract -- build-openehr `
+  --valueset "D:\SnoBehr\Refsets for Export\Body Site\body-site-20260201.openehr-valueset.json" `
+  --output "out\body-site-20260201.artefact.json"
+```
+
 Build the Objective-field observable entity artefact from the observations value set:
 
 ```powershell
@@ -55,6 +63,7 @@ Production deployments should build this artefact during release packaging, reco
 ```powershell
 cargo run --features http --bin snomed-serve -- `
   --artefact "out\symptoms-20260201.artefact.json" `
+  --body-site-artefact "out\body-site-20260201.artefact.json" `
   --observables-artefact "out\observations-20260201.artefact.json" `
   --examination-findings-artefact "out\examination-findings-20260201.artefact.json" `
   --diagnoses-artefact "out\diagnoses-20260201.artefact.json" `
@@ -63,6 +72,10 @@ cargo run --features http --bin snomed-serve -- `
 ```
 
 You can run only one endpoint by omitting the other artefact options.
+For the symptom endpoint, `--body-site-artefact` is optional; when supplied,
+broad symptom matches can carry a nested Body Site SNOMED CT term for openEHR
+template population. It requires `--artefact`. The engine does not invent
+body-site concepts that are absent from the loaded Body Site artefact.
 
 Health check:
 
@@ -165,14 +178,23 @@ The diagnosis endpoint deliberately accepts only the `assessment` field. It retu
   "note_id": "optional-note-id",
   "matches": [
     {
-      "concept_id": "267036007",
-      "preferred_term": "Dyspnea",
+      "concept_id": "418363000",
+      "preferred_term": "Itching",
       "field": "history",
-      "span_start": 22,
-      "span_end": 37,
-      "matched_text": "short of breath",
-      "normalized_match": "short of breath",
-      "term_source": "clinical_alias:gp-breathlessness-v1",
+      "span_start": 0,
+      "span_end": 4,
+      "matched_text": "Itch",
+      "normalized_match": "itch",
+      "term_source": "openehr-description-synonym",
+      "body_site": {
+        "concept_id": "30021000",
+        "preferred_term": "Leg structure",
+        "span_start": 7,
+        "span_end": 10,
+        "matched_text": "leg",
+        "normalized_match": "leg",
+        "term_source": "openehr-description-synonym"
+      },
       "rule_ids": ["ASSERT_AFFIRMED_PATIENT_FINDING"],
       "explanation": "Accepted as an affirmed patient finding in the history field; no suppression rule fired."
     }
@@ -274,6 +296,13 @@ Invoke-RestMethod `
 cargo run --bin snomed-extract -- extract-observables `
   --artefact "out\observations-20260201.artefact.json" `
   --input "fixtures\example-observable-request.json"
+```
+
+```powershell
+cargo run --bin snomed-extract -- extract `
+  --artefact "out\symptoms-20260201.artefact.json" `
+  --body-site-artefact "out\body-site-20260201.artefact.json" `
+  --input "fixtures\example-request.json"
 ```
 
 ```powershell

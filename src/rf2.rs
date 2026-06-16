@@ -23,8 +23,10 @@ pub fn build_from_openehr_valueset(path: impl AsRef<Path>) -> Result<Terminology
         }
 
         let observable_entity = is_observable_entity(member.fsn.as_deref());
+        let body_structure = is_body_structure(member.fsn.as_deref());
         let mut variants = Vec::new();
         let mut descriptions = Vec::new();
+        let mut body_structure_sources = Vec::new();
         push_variant(
             &mut variants,
             member.display.as_str(),
@@ -32,6 +34,9 @@ pub fn build_from_openehr_valueset(path: impl AsRef<Path>) -> Result<Terminology
             None,
             false,
         );
+        if body_structure {
+            body_structure_sources.push((member.display.clone(), None));
+        }
         if let Some(fsn) = member.fsn.as_deref() {
             if let Some(term) = strip_fsn_semantic_tag(fsn) {
                 push_variant(
@@ -41,6 +46,9 @@ pub fn build_from_openehr_valueset(path: impl AsRef<Path>) -> Result<Terminology
                     None,
                     false,
                 );
+                if body_structure {
+                    body_structure_sources.push((term.to_string(), None));
+                }
             }
         }
         for description in member
@@ -73,6 +81,15 @@ pub fn build_from_openehr_valueset(path: impl AsRef<Path>) -> Result<Terminology
                     derived.allow_ambiguous,
                 );
             }
+            if body_structure {
+                body_structure_sources.push((
+                    description.term.clone(),
+                    Some(description.description_id.clone()),
+                ));
+            }
+        }
+        for (term, description_id) in body_structure_sources {
+            push_body_structure_variants(&mut variants, term.as_str(), description_id);
         }
         if observable_entity {
             push_observable_entity_aliases(&mut variants, member.display.as_str());
@@ -175,6 +192,9 @@ pub fn build_from_rf2_snapshot<P: AsRef<Path>>(
 
         let preferred_term = choose_preferred_term(&descriptions);
         let mut variants = Vec::new();
+        let body_structure = descriptions
+            .iter()
+            .any(|description| is_body_structure(Some(description.term.as_str())));
         for description in descriptions
             .iter()
             .filter(|description| description.description_type != "fully_specified_name")
@@ -194,6 +214,13 @@ pub fn build_from_rf2_snapshot<P: AsRef<Path>>(
                     derived.source,
                     Some(description.description_id.clone()),
                     derived.allow_ambiguous,
+                );
+            }
+            if body_structure {
+                push_body_structure_variants(
+                    &mut variants,
+                    description.term.as_str(),
+                    Some(description.description_id.clone()),
                 );
             }
         }
@@ -525,6 +552,124 @@ fn derive_description_variants(term: &str) -> Vec<DerivedVariant> {
     }
 
     variants
+}
+
+fn push_body_structure_variants(
+    variants: &mut Vec<TermVariant>,
+    term: &str,
+    description_id: Option<String>,
+) {
+    for variant in body_structure_variants(term) {
+        push_variant(
+            variants,
+            variant.as_str(),
+            "openehr-body-site-structure-variant",
+            description_id.clone(),
+            false,
+        );
+    }
+}
+
+fn body_structure_variants(term: &str) -> Vec<String> {
+    let normalized = normalize_term(strip_fsn_semantic_tag(term).unwrap_or(term));
+    let mut variants = Vec::new();
+    push_body_structure_variant(&mut variants, &normalized);
+
+    if let Some(rest) = normalized.strip_prefix("structure of ") {
+        push_body_structure_variant(&mut variants, rest.trim());
+    }
+
+    if let Some(rest) = normalized.strip_suffix(" structure") {
+        push_body_structure_variant(&mut variants, rest.trim());
+    }
+
+    let seeds = variants.clone();
+    for seed in seeds {
+        if let Some(rest) = seed.strip_suffix(" region") {
+            push_body_structure_variant(&mut variants, rest.trim());
+        }
+        if let Some(rest) = seed.strip_prefix("structure of ") {
+            push_body_structure_variant(&mut variants, rest.trim());
+        }
+        if let Some(collapsed) = collapse_body_region_phrase(&seed) {
+            push_body_structure_variant(&mut variants, &collapsed);
+        }
+        if let Some(head) = safe_body_site_head_before_of(&seed) {
+            push_body_structure_variant(&mut variants, head);
+        }
+    }
+
+    let mut seen = HashSet::new();
+    variants
+        .into_iter()
+        .filter(|variant| seen.insert(normalize_term(variant)))
+        .collect()
+}
+
+fn push_body_structure_variant(variants: &mut Vec<String>, value: &str) {
+    let normalized = normalize_term(value);
+    if safe_body_structure_variant(&normalized) {
+        variants.push(normalized);
+    }
+}
+
+fn collapse_body_region_phrase(value: &str) -> Option<String> {
+    for marker in [" region of ", " part of "] {
+        let Some((head, tail)) = value.split_once(marker) else {
+            continue;
+        };
+        let head = head.trim();
+        let tail = tail.trim();
+        if head.is_empty() || tail.is_empty() {
+            continue;
+        }
+        return Some(format!("{head} {tail}"));
+    }
+
+    None
+}
+
+fn safe_body_site_head_before_of(value: &str) -> Option<&str> {
+    let (head, tail) = value.split_once(" of ")?;
+    let head = head.trim();
+    let tail = tail.trim();
+    if tail.is_empty()
+        || !safe_body_structure_variant(head)
+        || generic_body_structure_variant(head)
+        || head.split(' ').count() > 2
+    {
+        return None;
+    }
+
+    Some(head)
+}
+
+fn safe_body_structure_variant(value: &str) -> bool {
+    let words = value
+        .split(' ')
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>();
+    !words.is_empty()
+        && words.len() <= 6
+        && value.chars().filter(|ch| ch.is_alphanumeric()).count() >= 3
+        && words
+            .iter()
+            .all(|word| word.chars().all(|ch| ch.is_ascii_alphabetic()))
+        && !generic_body_structure_variant(value)
+}
+
+fn generic_body_structure_variant(value: &str) -> bool {
+    matches!(
+        value,
+        "body"
+            | "body structure"
+            | "body part"
+            | "entire body"
+            | "anatomical structure"
+            | "organ"
+            | "joint"
+            | "structure"
+    )
 }
 
 fn push_observable_entity_aliases(variants: &mut Vec<TermVariant>, preferred_term: &str) {
@@ -1569,6 +1714,16 @@ fn is_observable_entity(fsn: Option<&str>) -> bool {
     .unwrap_or(false)
 }
 
+fn is_body_structure(fsn: Option<&str>) -> bool {
+    fsn.map(|value| {
+        value
+            .trim()
+            .to_ascii_lowercase()
+            .ends_with("(body structure)")
+    })
+    .unwrap_or(false)
+}
+
 fn description_type_name(type_id: &str) -> &'static str {
     match type_id {
         "900000000000003001" => "fully_specified_name",
@@ -1687,6 +1842,29 @@ mod tests {
             .any(|variant| variant.term == "swollen left tonsil"
                 && variant.source == "openehr-description-morphology-variant"
                 && !variant.allow_ambiguous));
+    }
+
+    #[test]
+    fn derives_natural_variants_from_body_structure_terms() {
+        let calf = body_structure_variants("Structure of calf of leg");
+        assert!(calf.iter().any(|variant| variant == "calf of leg"));
+        assert!(calf.iter().any(|variant| variant == "calf"));
+        assert!(!calf.iter().any(|variant| variant == "leg"));
+
+        let finger_joint = body_structure_variants("Joint of finger");
+        assert!(!finger_joint.iter().any(|variant| variant == "joint"));
+
+        let upper_arm = body_structure_variants("Upper arm structure");
+        assert!(upper_arm.iter().any(|variant| variant == "upper arm"));
+
+        let anterior_lower_leg =
+            body_structure_variants("Structure of anterior region of lower leg");
+        assert!(anterior_lower_leg
+            .iter()
+            .any(|variant| variant == "anterior lower leg"));
+        assert!(!anterior_lower_leg
+            .iter()
+            .any(|variant| variant == "lower leg"));
     }
 
     #[test]

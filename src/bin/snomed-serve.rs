@@ -21,6 +21,8 @@ struct Cli {
     #[arg(long)]
     artefact: Option<PathBuf>,
     #[arg(long)]
+    body_site_artefact: Option<PathBuf>,
+    #[arg(long)]
     observables_artefact: Option<PathBuf>,
     #[arg(long)]
     examination_findings_artefact: Option<PathBuf>,
@@ -44,6 +46,9 @@ struct AppState {
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
     let cli = Cli::parse();
+    if cli.artefact.is_none() && cli.body_site_artefact.is_some() {
+        anyhow::bail!("--body-site-artefact requires --artefact because body sites enrich the finding endpoint");
+    }
     if cli.artefact.is_none()
         && cli.observables_artefact.is_none()
         && cli.examination_findings_artefact.is_none()
@@ -54,7 +59,8 @@ async fn main() -> Result<()> {
         );
     }
 
-    let findings = load_optional_extractor(cli.artefact.as_ref(), "finding")?;
+    let findings =
+        load_optional_finding_extractor(cli.artefact.as_ref(), cli.body_site_artefact.as_ref())?;
     let observables = load_optional_extractor(cli.observables_artefact.as_ref(), "observable")?;
     let examination_findings = load_optional_extractor(
         cli.examination_findings_artefact.as_ref(),
@@ -88,6 +94,39 @@ async fn main() -> Result<()> {
     tracing::info!(%address, "SNOMED extractor listening");
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+fn load_optional_finding_extractor(
+    path: Option<&PathBuf>,
+    body_site_path: Option<&PathBuf>,
+) -> Result<Option<Arc<Extractor>>> {
+    let Some(path) = path else {
+        return Ok(None);
+    };
+
+    let artefact = TerminologyArtefact::from_path(path)
+        .with_context(|| format!("failed to load finding artefact {}", path.display()))?;
+    let extractor = if let Some(body_site_path) = body_site_path {
+        let body_site_artefact =
+            TerminologyArtefact::from_path(body_site_path).with_context(|| {
+                format!(
+                    "failed to load body site artefact {}",
+                    body_site_path.display()
+                )
+            })?;
+        Extractor::new_with_body_sites(artefact, body_site_artefact)?
+    } else {
+        Extractor::new(artefact)?
+    };
+    let dropped = extractor.dropped_ambiguous_terms().len();
+    if dropped > 0 {
+        tracing::warn!(
+            label = "finding",
+            dropped_ambiguous = dropped,
+            "ambiguity guard removed terms from artefact; run `snomed-extract audit-terms` to review"
+        );
+    }
+    Ok(Some(Arc::new(extractor)))
 }
 
 fn load_optional_extractor(path: Option<&PathBuf>, label: &str) -> Result<Option<Arc<Extractor>>> {

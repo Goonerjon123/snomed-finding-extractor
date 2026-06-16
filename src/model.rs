@@ -154,8 +154,23 @@ pub struct FindingMatch {
     /// matches or when no value follows.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<MeasuredValue>,
+    /// Optional SNOMED CT body site grouped with a broad symptom finding so
+    /// downstream openEHR templates can populate symptom code and body site.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body_site: Option<BodySiteMatch>,
     pub rule_ids: Vec<String>,
     pub explanation: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BodySiteMatch {
+    pub concept_id: String,
+    pub preferred_term: String,
+    pub span_start: usize,
+    pub span_end: usize,
+    pub matched_text: String,
+    pub normalized_match: String,
+    pub term_source: String,
 }
 
 /// A measurement value captured from the text after a numeric match.

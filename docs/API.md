@@ -74,16 +74,25 @@ The diagnosis endpoint only accepts Assessment text. It should be backed by an a
   "note_id": "optional-local-id",
   "matches": [
     {
-      "concept_id": "1000000001",
-      "preferred_term": "Chest pain",
-      "field": "assessment",
+      "concept_id": "418363000",
+      "preferred_term": "Itching",
+      "field": "history",
       "span_start": 0,
-      "span_end": 10,
-      "matched_text": "Chest pain",
-      "normalized_match": "chest pain",
-      "term_source": "preferred_term",
+      "span_end": 4,
+      "matched_text": "Itch",
+      "normalized_match": "itch",
+      "term_source": "openehr-description-synonym",
+      "body_site": {
+        "concept_id": "30021000",
+        "preferred_term": "Leg structure",
+        "span_start": 7,
+        "span_end": 10,
+        "matched_text": "leg",
+        "normalized_match": "leg",
+        "term_source": "openehr-description-synonym"
+      },
       "rule_ids": ["ASSERT_AFFIRMED_PATIENT_FINDING"],
-      "explanation": "Accepted as an affirmed patient finding in the assessment field; no suppression rule fired."
+      "explanation": "Accepted as an affirmed patient finding in the history field; no suppression rule fired."
     }
   ],
   "suppressed": [],
@@ -101,6 +110,11 @@ The response shape is the same for all endpoints. For `/v1/extract-observables` 
 
 - `term_source` — provenance of the matched term: how it entered the artefact (`preferred_term`, `openehr-description-acronym`, `clinical_alias:<set>`, `built-in-observable-alias`, ...). Runtime morphology matches append `:morphology`, for example `openehr-display:morphology`. This replaces the former `confidence` field, which was a fixed per-field constant and **not** a probability. Do not rank or threshold on a probability the engine never produced.
 - `value` — present on observable matches when a numeric value follows the label. Shape: `{ "text": "128/82", "unit": "mmHg", "span_start": 3, "span_end": 12 }`. `unit` is omitted when none was typed. The EPR can map this directly into an openEHR `DV_QUANTITY`/`DV_PROPORTION` rather than re-parsing the note. Value capture tolerates filler words, so `BP today 128/82` and `HR of 88 bpm` are captured; compact GP shorthand such as `afeb 37.2` is captured as body temperature when that concept is in the observable artefact.
+
+`body_site` is present only on accepted symptom matches when the finding extractor
+has been configured with a Body Site artefact and a nearby body-site mention can
+safely enrich a broad symptom concept. Specific symptom concepts that already
+imply the body site, such as earache, do not receive a duplicate `body_site`.
 
 The Subjective field may be supplied as either `subjective` or `history` in `/v1/extract` requests.
 

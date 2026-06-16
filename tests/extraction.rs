@@ -71,6 +71,33 @@ fn extractor_with_generic_shared_head_terms() -> Extractor {
     .unwrap()
 }
 
+fn extractor_with_body_sites(
+    symptoms: Vec<ConceptEntry>,
+    body_sites: Vec<ConceptEntry>,
+) -> Extractor {
+    Extractor::new_with_body_sites(
+        TerminologyArtefact {
+            schema_version: 1,
+            terminology_version: "fixture-symptoms".to_string(),
+            source_release: "fixture".to_string(),
+            refset_id: "fixture-symptoms".to_string(),
+            generated_at_utc: "fixture".to_string(),
+            concepts: symptoms,
+            artefact_hash: String::new(),
+        },
+        TerminologyArtefact {
+            schema_version: 1,
+            terminology_version: "fixture-body-sites".to_string(),
+            source_release: "fixture".to_string(),
+            refset_id: "fixture-body-sites".to_string(),
+            generated_at_utc: "fixture".to_string(),
+            concepts: body_sites,
+            artefact_hash: String::new(),
+        },
+    )
+    .unwrap()
+}
+
 #[test]
 fn extracts_affirmed_findings_and_suppresses_unsafe_contexts() {
     let extractor = extractor();
@@ -330,6 +357,156 @@ fn head_first_site_mentions_prefer_specific_site_concepts() {
     assert_eq!(breast.matches.len(), 1);
     assert_eq!(breast.matches[0].preferred_term, "Breast lump");
     assert_eq!(breast.matches[0].matched_text, "Lump R breast");
+}
+
+#[test]
+fn broad_symptoms_include_nearby_body_site_from_body_site_refset() {
+    let extractor = extractor_with_body_sites(
+        vec![
+            concept("418363000", "Itching", &["itch"]),
+            concept("300848003", "Mass of body structure", &["lump"]),
+        ],
+        vec![
+            concept("30021000", "Leg structure", &["leg"]),
+            concept("76752008", "Breast structure", &["breast"]),
+        ],
+    );
+
+    let response = extractor
+        .extract(ExtractRequest {
+            history: "Itch - leg. Lump R breast.".to_string(),
+            include_suppressed: true,
+            ..ExtractRequest::default()
+        })
+        .unwrap();
+
+    assert_eq!(response.matches.len(), 2);
+
+    let itch = response
+        .matches
+        .iter()
+        .find(|item| item.concept_id == "418363000")
+        .unwrap();
+    let itch_site = itch.body_site.as_ref().unwrap();
+    assert_eq!(itch_site.concept_id, "30021000");
+    assert_eq!(itch_site.preferred_term, "Leg structure");
+    assert_eq!(itch_site.matched_text, "leg");
+
+    let lump = response
+        .matches
+        .iter()
+        .find(|item| item.concept_id == "300848003")
+        .unwrap();
+    let lump_site = lump.body_site.as_ref().unwrap();
+    assert_eq!(lump_site.concept_id, "76752008");
+    assert_eq!(lump_site.preferred_term, "Breast structure");
+    assert_eq!(lump_site.matched_text, "breast");
+}
+
+#[test]
+fn body_site_is_not_added_when_selected_symptom_already_implies_site() {
+    let extractor = extractor_with_body_sites(
+        vec![
+            concept("22253000", "Pain", &["pain"]),
+            concept("16001004", "Earache", &["earache", "ear pain"]),
+        ],
+        vec![
+            concept("117590005", "Ear structure", &["ear"]),
+            concept("30021000", "Leg structure", &["leg"]),
+        ],
+    );
+
+    let response = extractor
+        .extract(ExtractRequest {
+            history: "Ear pain. Pain in leg.".to_string(),
+            include_suppressed: true,
+            ..ExtractRequest::default()
+        })
+        .unwrap();
+
+    assert_eq!(response.matches.len(), 2);
+
+    let earache = response
+        .matches
+        .iter()
+        .find(|item| item.concept_id == "16001004")
+        .unwrap();
+    assert_eq!(earache.preferred_term, "Earache");
+    assert!(earache.body_site.is_none());
+
+    let pain = response
+        .matches
+        .iter()
+        .find(|item| item.concept_id == "22253000")
+        .unwrap();
+    assert_eq!(
+        pain.body_site.as_ref().map(|site| site.concept_id.as_str()),
+        Some("30021000")
+    );
+}
+
+#[test]
+fn body_site_heading_beats_bare_joint_alias_for_knee_exam() {
+    let extractor = extractor_with_body_sites(
+        vec![
+            concept("22253000", "Pain", &["painful"]),
+            concept("247348008", "Tenderness", &["tender"]),
+        ],
+        vec![
+            concept("72696002", "Knee region structure", &["knee"]),
+            concept("125682004", "Finger joint structure", &["joint"]),
+        ],
+    );
+
+    let response = extractor
+        .extract(ExtractRequest {
+            objective: "R knee \u{2014} small effusion, mildly warm, no erythema. ROM: flexion reduced + painful past ~110 degrees, full extension. Tender medial joint line.".to_string(),
+            include_suppressed: true,
+            ..ExtractRequest::default()
+        })
+        .unwrap();
+
+    let pain = response
+        .matches
+        .iter()
+        .find(|item| item.concept_id == "22253000")
+        .unwrap();
+    assert_eq!(
+        pain.body_site.as_ref().map(|site| site.concept_id.as_str()),
+        Some("72696002")
+    );
+
+    let tenderness = response
+        .matches
+        .iter()
+        .find(|item| item.concept_id == "247348008")
+        .unwrap();
+    assert_eq!(
+        tenderness
+            .body_site
+            .as_ref()
+            .map(|site| site.concept_id.as_str()),
+        Some("72696002")
+    );
+
+    assert!(!response.matches.iter().any(|item| {
+        item.body_site.as_ref().map(|site| site.concept_id.as_str()) == Some("125682004")
+    }));
+
+    let mojibake_dash = extractor
+        .extract(ExtractRequest {
+            objective: "R knee \u{00e2}\u{20ac}\u{201d} Tender medial joint line.".to_string(),
+            include_suppressed: true,
+            ..ExtractRequest::default()
+        })
+        .unwrap();
+    assert_eq!(
+        mojibake_dash.matches[0]
+            .body_site
+            .as_ref()
+            .map(|site| site.concept_id.as_str()),
+        Some("72696002")
+    );
 }
 
 #[test]

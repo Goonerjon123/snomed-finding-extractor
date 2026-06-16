@@ -46,6 +46,14 @@ cargo run --bin snomed-extract -- build-openehr `
   --output "out\symptoms-20260201.artefact.json"
 ```
 
+Build the Body Site artefact used to enrich broad symptom matches:
+
+```powershell
+cargo run --bin snomed-extract -- build-openehr `
+  --valueset "D:\SnoBehr\Refsets for Export\Body Site\body-site-20260201.openehr-valueset.json" `
+  --output "out\body-site-20260201.artefact.json"
+```
+
 For Objective-field observable entities:
 
 ```powershell
@@ -91,9 +99,17 @@ PowerShell wildcard paths must resolve to concrete files before passing them to 
 ```powershell
 cargo run --bin snomed-extract -- extract `
   --artefact "out\symptoms-20260201.artefact.json" `
+  --body-site-artefact "out\body-site-20260201.artefact.json" `
   --input "fixtures\example-request.json" `
   --include-suppressed
 ```
+
+When `--body-site-artefact` is supplied, accepted broad symptom matches can
+include a nested `body_site` SNOMED CT concept from the Body Site refset, for
+example a generic itch match grouped with leg. Specific symptom concepts that
+already imply the site, such as earache, are left without a separate body site.
+The engine does not invent body-site concepts that are absent from the loaded
+Body Site artefact.
 
 Request shape:
 
@@ -174,6 +190,7 @@ Request shape:
 ```powershell
 cargo run --features http --bin snomed-serve -- `
   --artefact "out\symptoms-20260201.artefact.json" `
+  --body-site-artefact "out\body-site-20260201.artefact.json" `
   --observables-artefact "out\observations-20260201.artefact.json" `
   --examination-findings-artefact "out\examination-findings-20260201.artefact.json" `
   --diagnoses-artefact "out\diagnoses-20260201.artefact.json" `
