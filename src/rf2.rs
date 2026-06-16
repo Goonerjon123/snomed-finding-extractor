@@ -821,6 +821,7 @@ fn clinical_phrase_variants(term: &str) -> Vec<String> {
 
     variants.extend(coordinator_omission_variants(normalized));
     variants.extend(pain_phrase_variants(normalized));
+    variants.extend(cold_body_site_variants(normalized));
     variants.extend(colloquial_symptom_variants(normalized));
 
     if let Some(function) = normalized.strip_prefix("impaired ") {
@@ -942,6 +943,22 @@ fn pain_phrase_variants(normalized: &str) -> Vec<String> {
     variants
 }
 
+fn cold_body_site_variants(normalized: &str) -> Vec<String> {
+    let mut variants = Vec::new();
+
+    let Some(body_site) = normalized.strip_prefix("cold ") else {
+        return variants;
+    };
+    let body_site = body_site.trim();
+    if safe_short_body_site_phrase(body_site) {
+        variants.push(format!("{body_site} cold"));
+        variants.push(format!("{body_site} feel cold"));
+        variants.push(format!("{body_site} feels cold"));
+    }
+
+    variants
+}
+
 fn colloquial_symptom_variants(normalized: &str) -> Vec<String> {
     let mut variants = Vec::new();
 
@@ -959,9 +976,17 @@ fn colloquial_symptom_variants(normalized: &str) -> Vec<String> {
             variants.push("bloating".to_string());
             variants.push("bloated".to_string());
         }
-        "abdominal colic" => {
+        "abdominal pain" => {
             variants.push("abdominal cramps".to_string());
             variants.push("abdominal cramp".to_string());
+            variants.push("abdominal cramping".to_string());
+        }
+        "lower abdominal pain" => {
+            variants.push("lower abdominal cramps".to_string());
+            variants.push("lower abdominal cramp".to_string());
+            variants.push("lower abdominal cramping".to_string());
+            variants.push("lower abdomen cramps".to_string());
+            variants.push("lower abdomen cramping".to_string());
         }
         "alopecia" | "loss of hair" => {
             variants.push("hair thinning".to_string());
@@ -1042,7 +1067,6 @@ fn colloquial_symptom_variants(normalized: &str) -> Vec<String> {
         "intolerant of cold" => {
             variants.push("cold intolerance".to_string());
             variants.push("cold all the time".to_string());
-            variants.push("feels cold".to_string());
         }
         "joint crepitus" => {
             variants.push("grinding".to_string());
@@ -1458,6 +1482,21 @@ mod tests {
             .iter()
             .any(|variant| variant.term == "suprapubic discomfort"));
 
+        let abdominal_pain = derive_description_variants("Abdominal pain");
+        assert!(abdominal_pain
+            .iter()
+            .any(|variant| variant.term == "abdominal cramping"));
+
+        let lower_abdominal_pain = derive_description_variants("Lower abdominal pain");
+        assert!(lower_abdominal_pain
+            .iter()
+            .any(|variant| variant.term == "lower abdominal cramping"));
+
+        let abdominal_colic = derive_description_variants("Abdominal colic");
+        assert!(!abdominal_colic
+            .iter()
+            .any(|variant| variant.term == "abdominal cramps"));
+
         let head_pain = derive_description_variants("Head pain");
         assert!(!head_pain.iter().any(|variant| variant.term == "pain head"));
 
@@ -1468,6 +1507,19 @@ mod tests {
         assert!(malodorous_urine
             .iter()
             .any(|variant| variant.term == "smelly"));
+
+        let cold_feet = derive_description_variants("Cold feet");
+        assert!(cold_feet
+            .iter()
+            .any(|variant| variant.term == "feet feel cold"));
+
+        let cold_intolerance = derive_description_variants("Intolerant of cold");
+        assert!(cold_intolerance
+            .iter()
+            .any(|variant| variant.term == "cold all the time"));
+        assert!(!cold_intolerance
+            .iter()
+            .any(|variant| variant.term == "feels cold"));
 
         let pins_and_needles = derive_description_variants("Pins and needles");
         assert!(pins_and_needles

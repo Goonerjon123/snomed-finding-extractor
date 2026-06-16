@@ -261,6 +261,7 @@ const TIGHT_GAP_ALLOW: &[&str] = &[
     "persistent",
     "intermittent",
     "chronic",
+    "rest",
     "his",
     "her",
     "their",
@@ -317,6 +318,7 @@ const ANATOMICAL_GAP_ALLOW: &[&str] = &[
     "spinal",
     "spine",
     "thoracic",
+    "tip",
     "toe",
     "toes",
     "urinary",
@@ -1002,6 +1004,8 @@ mod tests {
             ("Denies any chest pain", "chest pain"),
             ("No new chest pain since", "chest pain"),
             ("No morning headache", "headache"),
+            ("No rest pain", "pain"),
+            ("No shoulder-tip pain", "pain"),
         ] {
             let decision = classify(SoapField::History, text, target);
             assert!(!decision.accepted, "expected suppression for {text}");

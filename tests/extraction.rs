@@ -253,6 +253,131 @@ fn bare_smell_descriptors_require_urinary_context_for_malodorous_urine() {
     );
 }
 
+#[test]
+fn anatomical_shorthand_pain_prefers_specific_site_concept() {
+    let extractor = Extractor::new(TerminologyArtefact {
+        schema_version: 1,
+        terminology_version: "test".to_string(),
+        source_release: "test".to_string(),
+        refset_id: "fixture-symptoms".to_string(),
+        generated_at_utc: "test".to_string(),
+        artefact_hash: "UNVERIFIED".to_string(),
+        concepts: vec![
+            concept("22253000", "Pain", &["pain"]),
+            concept(
+                "285388000",
+                "Right upper quadrant pain",
+                &["right upper quadrant pain"],
+            ),
+        ],
+    })
+    .unwrap();
+
+    let response = extractor
+        .extract(ExtractRequest {
+            history: "Recurrent severe RUQ pain after fatty meals.".to_string(),
+            include_suppressed: true,
+            ..ExtractRequest::default()
+        })
+        .unwrap();
+
+    assert_eq!(response.matches.len(), 1);
+    assert_eq!(response.matches[0].concept_id, "285388000");
+    assert_eq!(
+        response.matches[0].preferred_term,
+        "Right upper quadrant pain"
+    );
+    assert_eq!(response.matches[0].matched_text, "RUQ pain");
+    assert!(response.suppressed.is_empty());
+}
+
+#[test]
+fn head_first_site_mentions_prefer_specific_site_concepts() {
+    let extractor = Extractor::new(TerminologyArtefact {
+        schema_version: 1,
+        terminology_version: "test".to_string(),
+        source_release: "test".to_string(),
+        refset_id: "fixture-symptoms".to_string(),
+        generated_at_utc: "test".to_string(),
+        artefact_hash: "UNVERIFIED".to_string(),
+        concepts: vec![
+            concept("22253000", "Pain", &["pain"]),
+            concept("300848003", "Mass of body structure", &["lump"]),
+            concept("1000000301", "Pain in calf", &["calf pain"]),
+            concept("1000000302", "Breast lump", &["breast lump"]),
+        ],
+    })
+    .unwrap();
+
+    let calf = extractor
+        .extract(ExtractRequest {
+            history: "Cramping pain both calves on walking.".to_string(),
+            include_suppressed: true,
+            ..ExtractRequest::default()
+        })
+        .unwrap();
+    assert_eq!(calf.matches.len(), 1);
+    assert_eq!(calf.matches[0].preferred_term, "Pain in calf");
+    assert_eq!(calf.matches[0].matched_text, "pain both calves");
+
+    let breast = extractor
+        .extract(ExtractRequest {
+            history: "Lump R breast, painless.".to_string(),
+            include_suppressed: true,
+            ..ExtractRequest::default()
+        })
+        .unwrap();
+    assert_eq!(breast.matches.len(), 1);
+    assert_eq!(breast.matches[0].preferred_term, "Breast lump");
+    assert_eq!(breast.matches[0].matched_text, "Lump R breast");
+}
+
+#[test]
+fn pv_bleeding_and_lower_abdominal_cramping_extract_specific_concepts() {
+    let extractor = Extractor::new(TerminologyArtefact {
+        schema_version: 1,
+        terminology_version: "test".to_string(),
+        source_release: "test".to_string(),
+        refset_id: "fixture-symptoms".to_string(),
+        generated_at_utc: "test".to_string(),
+        artefact_hash: "UNVERIFIED".to_string(),
+        concepts: vec![
+            concept("22253000", "Pain", &["pain"]),
+            concept("289530006", "Vaginal bleeding", &["vaginal bleeding"]),
+            concept(
+                "54586004",
+                "Lower abdominal pain",
+                &["lower abdominal cramping"],
+            ),
+        ],
+    })
+    .unwrap();
+
+    let response = extractor
+        .extract(ExtractRequest {
+            history: "Light PV bleeding. Mild lower abdo cramping. No shoulder-tip pain."
+                .to_string(),
+            include_suppressed: true,
+            ..ExtractRequest::default()
+        })
+        .unwrap();
+
+    let positives = response
+        .matches
+        .iter()
+        .map(|item| (item.concept_id.as_str(), item.matched_text.as_str()))
+        .collect::<Vec<_>>();
+    assert!(positives.contains(&("289530006", "PV bleeding")));
+    assert!(positives.contains(&("54586004", "lower abdo cramping")));
+    assert!(!positives
+        .iter()
+        .any(|(concept_id, _)| *concept_id == "22253000"));
+    assert_eq!(response.suppressed.len(), 1);
+    assert_eq!(response.suppressed[0].preferred_term, "Pain");
+    assert_eq!(response.suppressed[0].matched_text, "pain");
+    assert_eq!(response.suppressed[0].assertion, AssertionStatus::Negated);
+}
+
 fn concept(
     concept_id: &str,
     preferred_term: &str,

@@ -75,6 +75,7 @@ struct MorphPatternMeta {
 enum FlexiblePatternKind {
     BodySite,
     CoordinatedSharedHead,
+    SiteHeadReordered,
 }
 
 #[derive(Debug, Clone)]
@@ -268,6 +269,16 @@ impl TerminologyMatcher {
                         FlexiblePatternKind::CoordinatedSharedHead,
                     );
                 }
+                if let Some(tokens) = site_head_reordered_pattern_tokens(&candidate.pattern) {
+                    push_flexible_pattern(
+                        &mut flexible_patterns,
+                        &mut flexible_by_first_token,
+                        &candidate,
+                        tokens,
+                        "reordered-site-head",
+                        FlexiblePatternKind::SiteHeadReordered,
+                    );
+                }
             }
         }
 
@@ -384,6 +395,9 @@ impl TerminologyMatcher {
                                 token_index,
                                 &meta.tokens,
                             )
+                        }
+                        FlexiblePatternKind::SiteHeadReordered => {
+                            find_site_head_reordered_match(text, &tokens, token_index, &meta.tokens)
                         }
                     };
                     let Some((start, end)) = matched_range else {
@@ -890,6 +904,141 @@ fn coordinated_shared_head_pattern_tokens(pattern: &str) -> Option<Vec<String>> 
     Some(tokens)
 }
 
+fn site_head_reordered_pattern_tokens(pattern: &str) -> Option<Vec<String>> {
+    let tokens = pattern
+        .split(' ')
+        .filter(|token| !token.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if tokens.len() < 2 || tokens.len() > 5 {
+        return None;
+    }
+
+    let head = tokens.last()?;
+    if !reorderable_site_head(head) || !likely_body_site_tokens(&tokens[..tokens.len() - 1]) {
+        return None;
+    }
+
+    let mut reordered = Vec::with_capacity(tokens.len());
+    reordered.push(head.clone());
+    reordered.extend(tokens[..tokens.len() - 1].iter().cloned());
+    Some(reordered)
+}
+
+fn reorderable_site_head(token: &str) -> bool {
+    matches!(
+        token,
+        "pain"
+            | "ache"
+            | "discomfort"
+            | "tenderness"
+            | "swelling"
+            | "weakness"
+            | "numbness"
+            | "lump"
+            | "mass"
+            | "discharge"
+            | "bleeding"
+    )
+}
+
+fn likely_body_site_tokens(tokens: &[String]) -> bool {
+    if tokens.is_empty() || tokens.len() > 4 {
+        return false;
+    }
+
+    let mut has_site = false;
+    for token in tokens {
+        let token = token.as_str();
+        if reordered_site_modifier_token(token) {
+            continue;
+        }
+        if reordered_body_site_token(token) {
+            has_site = true;
+            continue;
+        }
+        return false;
+    }
+
+    has_site
+}
+
+fn reordered_site_modifier_token(token: &str) -> bool {
+    matches!(
+        token,
+        "left"
+            | "right"
+            | "bilateral"
+            | "upper"
+            | "lower"
+            | "central"
+            | "lateral"
+            | "medial"
+            | "anterior"
+            | "posterior"
+            | "inner"
+            | "outer"
+    )
+}
+
+fn reordered_body_site_token(token: &str) -> bool {
+    matches!(
+        token,
+        "abdomen"
+            | "abdominal"
+            | "ankle"
+            | "arm"
+            | "back"
+            | "bladder"
+            | "bowel"
+            | "breast"
+            | "calf"
+            | "chest"
+            | "ear"
+            | "eye"
+            | "face"
+            | "facial"
+            | "feet"
+            | "foot"
+            | "fossa"
+            | "groin"
+            | "hand"
+            | "head"
+            | "heel"
+            | "hip"
+            | "iliac"
+            | "jaw"
+            | "knee"
+            | "leg"
+            | "limb"
+            | "lumbar"
+            | "neck"
+            | "nipple"
+            | "pelvic"
+            | "pelvis"
+            | "perianal"
+            | "quadrant"
+            | "sacral"
+            | "shoulder"
+            | "spinal"
+            | "spine"
+            | "testicular"
+            | "testis"
+            | "thigh"
+            | "thoracic"
+            | "throat"
+            | "toe"
+            | "tongue"
+            | "umbilical"
+            | "urethral"
+            | "urinary"
+            | "vaginal"
+            | "vulval"
+            | "vulvar"
+            | "wrist"
+    )
+}
+
 fn weak_flexible_start(token: &str) -> bool {
     matches!(
         token,
@@ -1040,6 +1189,88 @@ fn find_coordinated_shared_head_match(
     }
 
     None
+}
+
+fn find_site_head_reordered_match(
+    original_text: &str,
+    tokens: &[NormalizedToken<'_>],
+    start_index: usize,
+    pattern_tokens: &[String],
+) -> Option<(usize, usize)> {
+    const MAX_EXTRA_TOKENS: usize = 4;
+
+    if pattern_tokens.len() < 2 || !token_matches(&pattern_tokens[0], tokens.get(start_index)?.text)
+    {
+        return None;
+    }
+
+    let mut search_from = start_index + 1;
+    let mut extra_tokens = 0_usize;
+    let mut end_index = start_index;
+    for pattern_token in pattern_tokens.iter().skip(1) {
+        let mut found_index = None;
+        let search_limit = (search_from + MAX_EXTRA_TOKENS + 1).min(tokens.len());
+        for (candidate_index, candidate_token) in tokens
+            .iter()
+            .enumerate()
+            .take(search_limit)
+            .skip(search_from)
+        {
+            if token_matches(pattern_token, candidate_token.text) {
+                found_index = Some(candidate_index);
+                break;
+            }
+            if !reordered_site_gap_token(candidate_token.text) {
+                return None;
+            }
+        }
+
+        let found_index = found_index?;
+        if has_hard_boundary_between(
+            original_text,
+            tokens[end_index].original_end,
+            tokens[found_index].original_start,
+        ) {
+            return None;
+        }
+        extra_tokens += found_index.saturating_sub(search_from);
+        if extra_tokens > MAX_EXTRA_TOKENS {
+            return None;
+        }
+
+        search_from = found_index + 1;
+        end_index = found_index;
+    }
+
+    Some((tokens[start_index].start, tokens[end_index].end))
+}
+
+fn reordered_site_gap_token(token: &str) -> bool {
+    matches!(
+        token,
+        "a" | "an"
+            | "the"
+            | "in"
+            | "of"
+            | "on"
+            | "to"
+            | "into"
+            | "from"
+            | "around"
+            | "down"
+            | "over"
+            | "both"
+            | "bilateral"
+            | "left"
+            | "right"
+            | "l"
+            | "r"
+            | "upper"
+            | "lower"
+            | "inner"
+            | "outer"
+            | "tip"
+    )
 }
 
 fn has_hard_boundary_between(original_text: &str, start: usize, end: usize) -> bool {
@@ -1316,6 +1547,49 @@ mod tests {
         .unwrap();
 
         let matches = matcher.find_in_field(SoapField::History, "alpha of beta. gamma", false);
+
+        assert!(matches.is_empty());
+    }
+
+    #[test]
+    fn reordered_site_head_matches_pain_and_lump_mentions() {
+        let matcher = TerminologyMatcher::new(&artefact_with(vec![
+            concept("22253000", "Pain", &["pain"]),
+            concept("300848003", "Mass of body structure", &["lump"]),
+            concept("1000000201", "Pain in calf", &["calf pain"]),
+            concept("1000000202", "Breast lump", &["breast lump"]),
+        ]))
+        .unwrap();
+
+        let calf = matcher.find_in_field(
+            SoapField::History,
+            "cramping pain both calves on walking",
+            false,
+        );
+        assert_eq!(calf.len(), 1);
+        assert_eq!(calf[0].concept_id, "1000000201");
+        assert_eq!(calf[0].matched_text, "pain both calves");
+
+        let breast = matcher.find_in_field(SoapField::History, "lump R breast", false);
+        assert_eq!(breast.len(), 1);
+        assert_eq!(breast[0].concept_id, "1000000202");
+        assert_eq!(breast[0].matched_text, "lump R breast");
+    }
+
+    #[test]
+    fn reordered_site_head_rejects_unrelated_gap_words() {
+        let matcher = TerminologyMatcher::new(&artefact_with(vec![concept(
+            "1000000203",
+            "Pain in calf",
+            &["calf pain"],
+        )]))
+        .unwrap();
+
+        let matches = matcher.find_in_field(
+            SoapField::History,
+            "pain after fatty meals, calves fine",
+            false,
+        );
 
         assert!(matches.is_empty());
     }

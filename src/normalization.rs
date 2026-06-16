@@ -142,6 +142,46 @@ const SHORTHAND_RULES: &[ShorthandRule] = &[
         objective_safe: true,
     },
     ShorthandRule {
+        source: &["ruq"],
+        replacement: "right upper quadrant",
+        objective_safe: true,
+    },
+    ShorthandRule {
+        source: &["luq"],
+        replacement: "left upper quadrant",
+        objective_safe: true,
+    },
+    ShorthandRule {
+        source: &["rlq"],
+        replacement: "right lower quadrant",
+        objective_safe: true,
+    },
+    ShorthandRule {
+        source: &["llq"],
+        replacement: "left lower quadrant",
+        objective_safe: true,
+    },
+    ShorthandRule {
+        source: &["rif"],
+        replacement: "right iliac fossa",
+        objective_safe: true,
+    },
+    ShorthandRule {
+        source: &["lif"],
+        replacement: "left iliac fossa",
+        objective_safe: true,
+    },
+    ShorthandRule {
+        source: &["pv"],
+        replacement: "vaginal",
+        objective_safe: false,
+    },
+    ShorthandRule {
+        source: &["pr"],
+        replacement: "rectal",
+        objective_safe: false,
+    },
+    ShorthandRule {
         source: &["pins", "needles"],
         replacement: "pins and needles",
         objective_safe: true,
@@ -413,6 +453,30 @@ mod tests {
             )
             .text,
             "abdominal cramps pins and needles lightheaded"
+        );
+    }
+
+    #[test]
+    fn expands_abdominal_region_shorthand() {
+        assert_eq!(
+            normalize_clinical_text("RUQ pain and LIF tenderness", SoapField::History).text,
+            "right upper quadrant pain and left iliac fossa tenderness"
+        );
+        assert_eq!(
+            normalize_clinical_text("LUQ/RLQ/LLQ pain", SoapField::History).text,
+            "left upper quadrant right lower quadrant left lower quadrant pain"
+        );
+    }
+
+    #[test]
+    fn expands_pv_and_pr_only_outside_objective_text() {
+        assert_eq!(
+            normalize_clinical_text("PV bleeding and PR bleeding", SoapField::History).text,
+            "vaginal bleeding and rectal bleeding"
+        );
+        assert_eq!(
+            normalize_clinical_text("PV normal, PR 82", SoapField::Objective).text,
+            "pv normal pr 82"
         );
     }
 
