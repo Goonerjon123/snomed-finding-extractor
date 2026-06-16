@@ -819,6 +819,10 @@ fn clinical_phrase_variants(term: &str) -> Vec<String> {
         .or_else(|| normalized.strip_prefix("observation of "))
         .unwrap_or(normalized.as_str());
 
+    variants.extend(coordinator_omission_variants(normalized));
+    variants.extend(pain_phrase_variants(normalized));
+    variants.extend(colloquial_symptom_variants(normalized));
+
     if let Some(function) = normalized.strip_prefix("impaired ") {
         let function = function.trim();
         if safe_short_body_site_phrase(function) {
@@ -873,6 +877,297 @@ fn clinical_phrase_variants(term: &str) -> Vec<String> {
     match normalized {
         "frequency of urination" | "frequency of micturition" => {
             variants.push("urinary frequency".to_string());
+            variants.push("passing urine more often".to_string());
+            variants.push("urinating more often".to_string());
+            variants.push("going more often".to_string());
+        }
+        _ => {}
+    }
+
+    variants
+}
+
+fn coordinator_omission_variants(normalized: &str) -> Vec<String> {
+    let words = normalized.split(' ').collect::<Vec<_>>();
+    if words.len() < 3 || words.len() > 5 || !words.contains(&"and") {
+        return Vec::new();
+    }
+    if !words
+        .iter()
+        .all(|word| *word == "and" || word.chars().all(|ch| ch.is_ascii_alphabetic()))
+    {
+        return Vec::new();
+    }
+
+    let without_and = words
+        .iter()
+        .filter(|word| **word != "and")
+        .copied()
+        .collect::<Vec<_>>();
+    if without_and.len() < 2
+        || without_and
+            .iter()
+            .any(|word| word.chars().filter(|ch| ch.is_alphanumeric()).count() < 4)
+    {
+        return Vec::new();
+    }
+
+    vec![without_and.join(" ")]
+}
+
+fn pain_phrase_variants(normalized: &str) -> Vec<String> {
+    let mut variants = Vec::new();
+
+    if let Some(body_site) = normalized.strip_suffix(" pain") {
+        let body_site = body_site.trim();
+        if safe_short_body_site_phrase(body_site) {
+            if body_site.split(' ').count() > 1 {
+                variants.push(format!("pain {body_site}"));
+            }
+            variants.push(format!("{body_site} discomfort"));
+        }
+    }
+
+    for prefix in ["pain in ", "pain of "] {
+        if let Some(body_site) = normalized.strip_prefix(prefix) {
+            let body_site = body_site.trim();
+            if safe_short_body_site_phrase(body_site) {
+                variants.push(format!("{body_site} pain"));
+                variants.push(format!("{body_site} discomfort"));
+                variants.push(format!("discomfort {body_site}"));
+            }
+        }
+    }
+
+    variants
+}
+
+fn colloquial_symptom_variants(normalized: &str) -> Vec<String> {
+    let mut variants = Vec::new();
+
+    for prefix in ["feeling ", "feels "] {
+        if let Some(base) = normalized.strip_prefix(prefix) {
+            let base = base.trim();
+            if is_safe_clinical_phrase_variant(base) {
+                variants.push(base.to_string());
+            }
+        }
+    }
+
+    match normalized {
+        "abdominal bloating" => {
+            variants.push("bloating".to_string());
+            variants.push("bloated".to_string());
+        }
+        "abdominal colic" => {
+            variants.push("abdominal cramps".to_string());
+            variants.push("abdominal cramp".to_string());
+        }
+        "alopecia" | "loss of hair" => {
+            variants.push("hair thinning".to_string());
+            variants.push("thinning hair".to_string());
+        }
+        "breath smells unpleasant" => {
+            variants.push("bad breath".to_string());
+        }
+        "crust" | "crusting of skin" => {
+            variants.push("crusted".to_string());
+            variants.push("skin crusted".to_string());
+        }
+        "cervical lymphadenopathy" => {
+            variants.push("swollen neck glands".to_string());
+            variants.push("swollen glands in neck".to_string());
+            variants.push("neck glands swollen".to_string());
+        }
+        "dry eyes" => {
+            variants.push("dry eye".to_string());
+            variants.push("eye feels dry".to_string());
+            variants.push("eyes feel dry".to_string());
+        }
+        "dysuria" | "painful micturition" | "painful urination" => {
+            variants.push("burning on passing urine".to_string());
+            variants.push("burning when passing urine".to_string());
+            variants.push("burning to pass urine".to_string());
+            variants.push("burning urination".to_string());
+        }
+        "dyssomnia" | "sleep disturbance" => {
+            variants.push("disturbed sleep".to_string());
+            variants.push("poor sleep".to_string());
+            variants.push("struggling to sleep".to_string());
+            variants.push("keeping awake".to_string());
+        }
+        "erythema" => {
+            variants.push("redness".to_string());
+            variants.push("red hot".to_string());
+            variants.push("red and hot".to_string());
+            variants.push("red swollen".to_string());
+            variants.push("red and swollen".to_string());
+        }
+        "excessive sweating" => {
+            variants.push("sweaty".to_string());
+        }
+        "fatigue" => {
+            variants.push("tired".to_string());
+            variants.push("tiredness".to_string());
+            variants.push("exhausted".to_string());
+            variants.push("no energy".to_string());
+            variants.push("low energy".to_string());
+        }
+        "foreign body sensation" => {
+            variants.push("gritty eye".to_string());
+            variants.push("eye feels gritty".to_string());
+            variants.push("gritty eyes".to_string());
+        }
+        "generalised aches and pains" | "generalized aches and pains" => {
+            variants.push("aching all over".to_string());
+            variants.push("aches all over".to_string());
+            variants.push("achy".to_string());
+        }
+        "heavy menstrual bleeding" | "menorrhagia" => {
+            variants.push("heavy periods".to_string());
+            variants.push("heavier periods".to_string());
+            variants.push("periods heavier".to_string());
+        }
+        "hot skin" => {
+            variants.push("skin hot".to_string());
+            variants.push("hot swollen".to_string());
+            variants.push("hot and swollen".to_string());
+            variants.push("hot red".to_string());
+            variants.push("hot and red".to_string());
+        }
+        "initial insomnia" | "difficulty falling asleep" => {
+            variants.push("takes ages to drop off".to_string());
+            variants.push("difficulty dropping off".to_string());
+        }
+        "intolerant of cold" => {
+            variants.push("cold intolerance".to_string());
+            variants.push("cold all the time".to_string());
+            variants.push("feels cold".to_string());
+        }
+        "joint crepitus" => {
+            variants.push("grinding".to_string());
+            variants.push("creaking".to_string());
+            variants.push("grinding joint".to_string());
+            variants.push("creaking joint".to_string());
+        }
+        "low back pain" => {
+            variants.push("back pain".to_string());
+        }
+        "malodorous urine" => {
+            variants.push("strong smelling".to_string());
+            variants.push("strong smelling urine".to_string());
+            variants.push("urine strong smelling".to_string());
+            variants.push("urine smells strong".to_string());
+            variants.push("foul smelling".to_string());
+            variants.push("offensive smelling".to_string());
+            variants.push("offensive smelling urine".to_string());
+            variants.push("smelly".to_string());
+            variants.push("smelly urine".to_string());
+        }
+        "malaise" => {
+            variants.push("unwell".to_string());
+            variants.push("generally unwell".to_string());
+            variants.push("feeling unwell".to_string());
+        }
+        "nasal congestion" => {
+            variants.push("blocked nose".to_string());
+            variants.push("stuffy nose".to_string());
+        }
+        "nasal discharge" | "anterior rhinorrhea" | "anterior rhinorrhoea" => {
+            variants.push("runny nose".to_string());
+            variants.push("watery nasal discharge".to_string());
+            variants.push("watery discharge".to_string());
+        }
+        "nocturia" => {}
+        "pain in pelvis" => {
+            variants.push("pelvic ache".to_string());
+            variants.push("pelvic discomfort".to_string());
+            variants.push("dragging pelvic ache".to_string());
+        }
+        "palpitations" => {
+            variants.push("heart races".to_string());
+            variants.push("heart racing".to_string());
+            variants.push("racing heartbeat".to_string());
+        }
+        "poor stream of urine" => {
+            variants.push("poor flow".to_string());
+            variants.push("poor urinary flow".to_string());
+            variants.push("weak urinary stream".to_string());
+        }
+        "postural lightheadedness" => {
+            variants.push("lightheaded on standing".to_string());
+            variants.push("lightheadedness on standing".to_string());
+            variants.push("light headed on standing".to_string());
+        }
+        "racing thoughts" => {
+            variants.push("mind racing".to_string());
+        }
+        "recurrent falls" => {
+            variants.push("falls".to_string());
+            variants.push("repeated falls".to_string());
+        }
+        "shiny skin" => {
+            variants.push("skin shiny".to_string());
+            variants.push("skin tight shiny".to_string());
+            variants.push("tight shiny skin".to_string());
+        }
+        "swelling" => {
+            variants.push("swollen".to_string());
+        }
+        "swallowing painful" => {
+            variants.push("painful swallowing".to_string());
+        }
+        "sensation as if urinary bladder still full"
+        | "incomplete emptying of bladder"
+        | "incomplete emptying of urinary bladder" => {
+            variants.push("bladder not empty".to_string());
+            variants.push("feels bladder not empty".to_string());
+            variants.push("bladder still full".to_string());
+        }
+        "terminal dribbling of urine" => {
+            variants.push("terminal dribbling".to_string());
+        }
+        "tenderness" => {
+            variants.push("tender".to_string());
+            variants.push("exquisitely tender".to_string());
+            variants.push("tender to touch".to_string());
+            variants.push("painful to touch".to_string());
+        }
+        "taste sense altered" => {
+            variants.push("taste altered".to_string());
+            variants.push("altered taste".to_string());
+        }
+        "tight chest" => {
+            variants.push("chest tight".to_string());
+            variants.push("chest tightness".to_string());
+        }
+        "tremor" => {
+            variants.push("shaky".to_string());
+            variants.push("feels shaky".to_string());
+            variants.push("shaking".to_string());
+        }
+        "unsteady when walking" | "general unsteadiness" => {
+            variants.push("unsteady".to_string());
+            variants.push("unsteadiness".to_string());
+        }
+        "urgent desire for stool" => {
+            variants.push("bowel urgency".to_string());
+            variants.push("fecal urgency".to_string());
+            variants.push("faecal urgency".to_string());
+        }
+        "weakness of face muscles" => {
+            variants.push("facial droop".to_string());
+            variants.push("face drooped".to_string());
+            variants.push("side of face drooped".to_string());
+            variants.push("cannot smile".to_string());
+            variants.push("can't smile".to_string());
+            variants.push("cannot close eye".to_string());
+            variants.push("can't close eye".to_string());
+        }
+        "weight increased" | "weight gain" | "abnormal weight gain" => {
+            variants.push("gained weight".to_string());
+            variants.push("gaining weight".to_string());
+            variants.push("put on weight".to_string());
         }
         _ => {}
     }
@@ -1149,6 +1444,61 @@ mod tests {
             .any(|variant| variant.term == "painful periods"
                 && variant.source == "openehr-description-clinical-phrase-variant"
                 && !variant.allow_ambiguous));
+    }
+
+    #[test]
+    fn derives_subjective_gp_phrase_variants() {
+        let dysuria = derive_description_variants("Dysuria");
+        assert!(dysuria
+            .iter()
+            .any(|variant| variant.term == "burning on passing urine"));
+
+        let pain = derive_description_variants("Suprapubic pain");
+        assert!(pain
+            .iter()
+            .any(|variant| variant.term == "suprapubic discomfort"));
+
+        let head_pain = derive_description_variants("Head pain");
+        assert!(!head_pain.iter().any(|variant| variant.term == "pain head"));
+
+        let malodorous_urine = derive_description_variants("Malodorous urine");
+        assert!(malodorous_urine
+            .iter()
+            .any(|variant| variant.term == "strong smelling"));
+        assert!(malodorous_urine
+            .iter()
+            .any(|variant| variant.term == "smelly"));
+
+        let pins_and_needles = derive_description_variants("Pins and needles");
+        assert!(pins_and_needles
+            .iter()
+            .any(|variant| variant.term == "pins needles"));
+
+        let fatigue = derive_description_variants("Fatigue");
+        assert!(fatigue.iter().any(|variant| variant.term == "exhausted"));
+        assert!(fatigue.iter().any(|variant| variant.term == "no energy"));
+
+        let palpitations = derive_description_variants("Palpitations");
+        assert!(palpitations
+            .iter()
+            .any(|variant| variant.term == "heart races"));
+
+        let swelling = derive_description_variants("Swelling");
+        assert!(swelling.iter().any(|variant| variant.term == "swollen"));
+
+        let tenderness = derive_description_variants("Tenderness");
+        assert!(tenderness.iter().any(|variant| variant.term == "tender"));
+
+        let erythema = derive_description_variants("Erythema");
+        assert!(erythema.iter().any(|variant| variant.term == "red hot"));
+
+        let hot_skin = derive_description_variants("Hot skin");
+        assert!(hot_skin.iter().any(|variant| variant.term == "hot swollen"));
+
+        let shiny_skin = derive_description_variants("Shiny skin");
+        assert!(shiny_skin
+            .iter()
+            .any(|variant| variant.term == "skin tight shiny"));
     }
 
     #[test]

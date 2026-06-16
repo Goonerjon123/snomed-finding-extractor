@@ -103,6 +103,23 @@ const CONDITIONAL_PHRASES: &[&[&str]] = &[
     &["in", "case", "of"],
 ];
 
+const TRIGGER_FACTOR_PHRASES: &[&[&str]] = &[
+    &["worse"],
+    &["worsened", "by"],
+    &["worse", "with"],
+    &["worse", "after"],
+    &["worse", "on"],
+    &["triggered", "by"],
+    &["brought", "on", "by"],
+    &["set", "off", "by"],
+];
+
+const TRIGGER_GAP_ALLOW: &[&str] = &[
+    "with", "c", "by", "on", "after", "when", "while", "during", "at", "and", "or", "plus",
+    "sitting", "standing", "lying", "walking", "turning", "bending", "coughing", "stress", "foods",
+    "food", "weather", "cold", "outdoors", "pollen", "high", "days", "exposure",
+];
+
 const PLANNED_PHRASES: &[&[&str]] = &[
     &["refer", "for"],
     &["referred", "for"],
@@ -206,6 +223,9 @@ const TIGHT_GAP_ALLOW: &[&str] = &[
     "obvious",
     "frank",
     "focal",
+    "preceding",
+    "type",
+    "dvt",
     "acute",
     "associated",
     "current",
@@ -270,6 +290,8 @@ const ANATOMICAL_GAP_ALLOW: &[&str] = &[
     "chest",
     "cranial",
     "elbow",
+    "ear",
+    "ears",
     "eye",
     "eyes",
     "facial",
@@ -547,6 +569,16 @@ pub fn classify_assertion(
         });
     }
 
+    if trigger_factor_applies(&view) {
+        hits.push(RuleHit {
+            assertion: AssertionStatus::Ambiguous,
+            rule_id: "CTX_TRIGGER_OR_AGGRAVATING_FACTOR",
+            explanation:
+                "the mention is framed as a trigger or aggravating factor rather than a symptom",
+            priority: 65,
+        });
+    }
+
     if tight_cue_applies(&view, PLANNED_PHRASES, TIGHT_GAP_ALLOW) {
         hits.push(RuleHit {
             assertion: AssertionStatus::Planned,
@@ -804,6 +836,15 @@ fn frame_cue_applies(view: &SentenceView, phrases: &[&[&str]]) -> bool {
         .any(is_contrast)
 }
 
+fn trigger_factor_applies(view: &SentenceView) -> bool {
+    let Some(cue_end) = last_phrase_end(&view.tokens, view.span_first, TRIGGER_FACTOR_PHRASES)
+    else {
+        return false;
+    };
+
+    gap_is_clear(&view.tokens, cue_end..view.span_first, TRIGGER_GAP_ALLOW)
+}
+
 fn family_history_frame(view: &SentenceView) -> bool {
     frame_cue_applies(view, &[FAMILY_HISTORY_PHRASE])
 }
@@ -1040,6 +1081,8 @@ mod tests {
             ("No limb weakness", "weakness", vec![]),
             ("No limb weakness/numbness", "numbness", vec!["weakness"]),
             ("No spinal step/mass", "mass", vec!["step"]),
+            ("No ear pain", "pain", vec![]),
+            ("No DVT-type calf pain", "calf pain", vec![]),
         ] {
             let decision = classify_with_siblings(SoapField::History, text, target, &siblings);
             assert!(!decision.accepted, "expected suppression for {text}");
@@ -1241,5 +1284,34 @@ mod tests {
             "dizzy",
         );
         assert!(decision.accepted);
+    }
+
+    #[test]
+    fn suppresses_trigger_or_aggravating_factor_mentions() {
+        for (text, target) in [
+            ("Pain worse sitting and coughing", "coughing"),
+            ("Rash worse c stress", "stress"),
+            ("Symptoms triggered by cold weather", "cold"),
+        ] {
+            let decision = classify(SoapField::History, text, target);
+            assert!(!decision.accepted, "expected suppression for {text}");
+            assert_eq!(decision.assertion, AssertionStatus::Ambiguous);
+            assert!(decision
+                .rule_ids
+                .iter()
+                .any(|id| id == "CTX_TRIGGER_OR_AGGRAVATING_FACTOR"));
+        }
+    }
+
+    #[test]
+    fn negation_scopes_across_preceding_qualifier_and_sibling() {
+        let decision = classify_with_siblings(
+            SoapField::History,
+            "No preceding chest pain/palpitations",
+            "palpitations",
+            &["chest pain"],
+        );
+        assert!(!decision.accepted);
+        assert_eq!(decision.assertion, AssertionStatus::Negated);
     }
 }

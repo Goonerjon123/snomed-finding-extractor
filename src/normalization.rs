@@ -137,6 +137,21 @@ const SHORTHAND_RULES: &[ShorthandRule] = &[
         objective_safe: true,
     },
     ShorthandRule {
+        source: &["abdo"],
+        replacement: "abdominal",
+        objective_safe: true,
+    },
+    ShorthandRule {
+        source: &["pins", "needles"],
+        replacement: "pins and needles",
+        objective_safe: true,
+    },
+    ShorthandRule {
+        source: &["light", "headed"],
+        replacement: "lightheaded",
+        objective_safe: true,
+    },
+    ShorthandRule {
         source: &["d", "v"],
         replacement: "diarrhoea and vomiting",
         objective_safe: true,
@@ -386,6 +401,18 @@ mod tests {
         assert_eq!(
             normalize_clinical_text("h/o D&V last week", SoapField::History).text,
             "history of diarrhoea and vomiting last week"
+        );
+    }
+
+    #[test]
+    fn expands_common_subjective_short_forms() {
+        assert_eq!(
+            normalize_clinical_text(
+                "abdo cramps, pins + needles, light-headed",
+                SoapField::History
+            )
+            .text,
+            "abdominal cramps pins and needles lightheaded"
         );
     }
 

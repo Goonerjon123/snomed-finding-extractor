@@ -2,9 +2,10 @@ use crate::context::classify_assertion;
 use crate::error::{ExtractorError, Result};
 use crate::matcher::{RawMatch, TerminologyMatcher};
 use crate::model::{
-    DiagnosisExtractRequest, ExaminationFindingsExtractRequest, ExtractRequest, ExtractResponse,
-    FindingMatch, ObservableExtractRequest, SoapField, SuppressedMatch,
+    AssertionStatus, DiagnosisExtractRequest, ExaminationFindingsExtractRequest, ExtractRequest,
+    ExtractResponse, FindingMatch, ObservableExtractRequest, SoapField, SuppressedMatch,
 };
+use crate::normalization::normalize_clinical_text;
 use crate::terminology::TerminologyArtefact;
 use crate::{ENGINE_VERSION, RULESET_VERSION};
 use std::time::Instant;
@@ -90,8 +91,9 @@ impl Extractor {
                     .enumerate()
                     .filter_map(|(other, span)| (other != index).then_some(*span))
                     .collect::<Vec<_>>();
-                let decision =
-                    classify_assertion(field, text, raw.span_start, raw.span_end, &siblings);
+                let decision = semantic_context_decision(&raw, text).unwrap_or_else(|| {
+                    classify_assertion(field, text, raw.span_start, raw.span_end, &siblings)
+                });
                 if decision.accepted {
                     matches.push(to_finding_match(
                         raw,
@@ -140,6 +142,94 @@ fn kind_rule_id(extraction_kind: ExtractionKind) -> &'static str {
         ExtractionKind::ExaminationFinding => "ASSERT_AFFIRMED_PATIENT_EXAMINATION_FINDING",
         ExtractionKind::Diagnosis => "ASSERT_AFFIRMED_PATIENT_DIAGNOSIS",
     }
+}
+
+fn semantic_context_decision(
+    raw: &RawMatch,
+    field_text: &str,
+) -> Option<crate::context::AssertionDecision> {
+    if raw.concept_id == "75088002"
+        && raw.normalized_match == "urgency"
+        && !has_urinary_context(raw.field, field_text, raw.span_start, raw.span_end)
+    {
+        return Some(crate::context::AssertionDecision {
+            accepted: false,
+            assertion: AssertionStatus::Ambiguous,
+            rule_ids: vec!["CTX_AMBIGUOUS_URGENCY_WITHOUT_URINARY_CONTEXT".to_string()],
+            explanation:
+                "Suppressed: bare urgency is not specific to urinary urgency without urinary context."
+                    .to_string(),
+        });
+    }
+
+    if raw.concept_id == "278017001"
+        && is_bare_smell_descriptor(&raw.normalized_match)
+        && !has_urinary_context(raw.field, field_text, raw.span_start, raw.span_end)
+    {
+        return Some(crate::context::AssertionDecision {
+            accepted: false,
+            assertion: AssertionStatus::Ambiguous,
+            rule_ids: vec!["CTX_AMBIGUOUS_URINE_SMELL_WITHOUT_URINARY_CONTEXT".to_string()],
+            explanation: "Suppressed: smell descriptor is not specific to malodorous urine without urinary context."
+                .to_string(),
+        });
+    }
+
+    None
+}
+
+fn is_bare_smell_descriptor(normalized_match: &str) -> bool {
+    matches!(
+        normalized_match,
+        "strong smelling" | "foul smelling" | "offensive smelling" | "smelly"
+    )
+}
+
+fn has_urinary_context(field: SoapField, text: &str, span_start: usize, span_end: usize) -> bool {
+    let (window_start, window_end) = context_window(text, span_start, span_end, 120);
+    let normalized = normalize_clinical_text(&text[window_start..window_end], field).text;
+    let tokens = normalized
+        .split(' ')
+        .filter(|token| !token.is_empty())
+        .collect::<Vec<_>>();
+
+    tokens.iter().any(|token| {
+        matches!(
+            *token,
+            "urine"
+                | "urinary"
+                | "bladder"
+                | "waterworks"
+                | "micturition"
+                | "micturate"
+                | "dysuria"
+                | "haematuria"
+                | "hematuria"
+                | "nocturia"
+                | "stream"
+                | "flow"
+                | "dribbling"
+                | "incontinence"
+                | "wee"
+                | "pee"
+        )
+    }) || normalized.contains("pass urine")
+        || normalized.contains("passing urine")
+        || normalized.contains("empty bladder")
+}
+
+fn context_window(text: &str, span_start: usize, span_end: usize, radius: usize) -> (usize, usize) {
+    let mut start = span_start.saturating_sub(radius);
+    while start > 0 && !text.is_char_boundary(start) {
+        start -= 1;
+    }
+
+    let mut end = (span_end + radius).min(text.len());
+    while end < text.len() && !text.is_char_boundary(end) {
+        end += 1;
+    }
+
+    (start, end)
 }
 
 fn accepted_rule_ids(

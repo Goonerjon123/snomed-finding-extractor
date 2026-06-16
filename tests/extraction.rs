@@ -172,6 +172,87 @@ fn suppresses_family_history_after_morphological_plural_matching() {
     );
 }
 
+#[test]
+fn bare_urgency_requires_urinary_context_for_urinary_concept() {
+    let extractor = Extractor::new(TerminologyArtefact {
+        schema_version: 1,
+        terminology_version: "test".to_string(),
+        source_release: "test".to_string(),
+        refset_id: "fixture-symptoms".to_string(),
+        generated_at_utc: "test".to_string(),
+        artefact_hash: "UNVERIFIED".to_string(),
+        concepts: vec![concept(
+            "75088002",
+            "Urgent desire to urinate",
+            &["urgency"],
+        )],
+    })
+    .unwrap();
+
+    let urinary = extractor
+        .extract(ExtractRequest {
+            history: "Waterworks trouble. Urgency.".to_string(),
+            include_suppressed: true,
+            ..ExtractRequest::default()
+        })
+        .unwrap();
+    assert_eq!(urinary.matches.len(), 1);
+    assert!(urinary.suppressed.is_empty());
+
+    let bowel = extractor
+        .extract(ExtractRequest {
+            history: "Loose stools and constipation. Urgency at times.".to_string(),
+            include_suppressed: true,
+            ..ExtractRequest::default()
+        })
+        .unwrap();
+    assert!(bowel.matches.is_empty());
+    assert_eq!(bowel.suppressed.len(), 1);
+    assert_eq!(bowel.suppressed[0].assertion, AssertionStatus::Ambiguous);
+}
+
+#[test]
+fn bare_smell_descriptors_require_urinary_context_for_malodorous_urine() {
+    let extractor = Extractor::new(TerminologyArtefact {
+        schema_version: 1,
+        terminology_version: "test".to_string(),
+        source_release: "test".to_string(),
+        refset_id: "fixture-symptoms".to_string(),
+        generated_at_utc: "test".to_string(),
+        artefact_hash: "UNVERIFIED".to_string(),
+        concepts: vec![concept(
+            "278017001",
+            "Malodorous urine",
+            &["strong smelling", "smelly"],
+        )],
+    })
+    .unwrap();
+
+    let urinary = extractor
+        .extract(ExtractRequest {
+            history: "Urine cloudy and strong-smelling yesterday.".to_string(),
+            include_suppressed: true,
+            ..ExtractRequest::default()
+        })
+        .unwrap();
+    assert_eq!(urinary.matches.len(), 1);
+    assert!(urinary.suppressed.is_empty());
+
+    let non_urinary = extractor
+        .extract(ExtractRequest {
+            history: "The discharge is strong-smelling.".to_string(),
+            include_suppressed: true,
+            ..ExtractRequest::default()
+        })
+        .unwrap();
+    assert!(non_urinary.matches.is_empty());
+    assert_eq!(non_urinary.suppressed.len(), 1);
+    assert_eq!(
+        non_urinary.suppressed[0].assertion,
+        AssertionStatus::Ambiguous
+    );
+}
+
 fn concept(
     concept_id: &str,
     preferred_term: &str,
