@@ -74,6 +74,7 @@ struct MorphPatternMeta {
 #[derive(Debug, Clone, Copy)]
 enum FlexiblePatternKind {
     BodySite,
+    BodySiteThenHead,
     CoordinatedSharedHead,
     SiteHeadReordered,
 }
@@ -259,6 +260,26 @@ impl TerminologyMatcher {
                         FlexiblePatternKind::BodySite,
                     );
                 }
+                if let Some(tokens) = body_site_then_head_pattern_tokens(&candidate.pattern) {
+                    push_flexible_pattern(
+                        &mut flexible_patterns,
+                        &mut flexible_by_first_token,
+                        &candidate,
+                        tokens,
+                        "body-site-then-head",
+                        FlexiblePatternKind::BodySiteThenHead,
+                    );
+                }
+                if let Some(tokens) = body_site_descriptor_pattern_tokens(&candidate.pattern) {
+                    push_flexible_pattern(
+                        &mut flexible_patterns,
+                        &mut flexible_by_first_token,
+                        &candidate,
+                        tokens,
+                        "body-site-descriptor",
+                        FlexiblePatternKind::BodySiteThenHead,
+                    );
+                }
                 if let Some(tokens) = coordinated_shared_head_pattern_tokens(&candidate.pattern) {
                     push_flexible_pattern(
                         &mut flexible_patterns,
@@ -387,6 +408,9 @@ impl TerminologyMatcher {
                     let matched_range = match meta.kind {
                         FlexiblePatternKind::BodySite => {
                             find_flexible_body_site_match(text, &tokens, token_index, &meta.tokens)
+                        }
+                        FlexiblePatternKind::BodySiteThenHead => {
+                            find_body_site_then_head_match(text, &tokens, token_index, &meta.tokens)
                         }
                         FlexiblePatternKind::CoordinatedSharedHead => {
                             find_coordinated_shared_head_match(
@@ -885,6 +909,62 @@ fn flexible_body_site_pattern_tokens(pattern: &str) -> Option<Vec<String>> {
     Some(tokens)
 }
 
+fn body_site_then_head_pattern_tokens(pattern: &str) -> Option<Vec<String>> {
+    let tokens = pattern
+        .split(' ')
+        .filter(|token| !token.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if tokens.len() < 3 || tokens.len() > 7 {
+        return None;
+    }
+    if weak_flexible_start(tokens.first()?.as_str()) {
+        return None;
+    }
+    let preposition_index = tokens
+        .iter()
+        .position(|token| flexible_body_site_preposition(token))?;
+    if preposition_index == 0 || preposition_index + 1 >= tokens.len() {
+        return None;
+    }
+
+    let head = &tokens[..preposition_index];
+    let site = &tokens[preposition_index + 1..];
+    if head.len() > 3 || !likely_body_site_tokens(site) {
+        return None;
+    }
+
+    let mut reordered = Vec::with_capacity(head.len() + site.len());
+    reordered.extend(site.iter().cloned());
+    reordered.extend(head.iter().cloned());
+    Some(reordered)
+}
+
+fn body_site_descriptor_pattern_tokens(pattern: &str) -> Option<Vec<String>> {
+    let tokens = pattern
+        .split(' ')
+        .filter(|token| !token.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if tokens.len() < 2 || tokens.len() > 5 {
+        return None;
+    }
+    let descriptor = tokens.last()?;
+    if !reorderable_site_descriptor(descriptor)
+        || !likely_body_site_tokens(&tokens[..tokens.len() - 1])
+    {
+        return None;
+    }
+    Some(tokens)
+}
+
+fn reorderable_site_descriptor(token: &str) -> bool {
+    matches!(
+        token,
+        "bulging" | "enlarged" | "injected" | "red" | "swollen" | "tender" | "warm"
+    )
+}
+
 fn coordinated_shared_head_pattern_tokens(pattern: &str) -> Option<Vec<String>> {
     let tokens = pattern
         .split(' ')
@@ -996,6 +1076,8 @@ fn reordered_body_site_token(token: &str) -> bool {
             | "chest"
             | "ear"
             | "eye"
+            | "eyelid"
+            | "eyelids"
             | "face"
             | "facial"
             | "feet"
@@ -1010,8 +1092,13 @@ fn reordered_body_site_token(token: &str) -> bool {
             | "jaw"
             | "knee"
             | "leg"
+            | "lid"
+            | "lids"
             | "limb"
             | "lumbar"
+            | "malleoli"
+            | "malleolus"
+            | "membrane"
             | "neck"
             | "nipple"
             | "pelvic"
@@ -1019,6 +1106,7 @@ fn reordered_body_site_token(token: &str) -> bool {
             | "perianal"
             | "quadrant"
             | "sacral"
+            | "shin"
             | "shoulder"
             | "spinal"
             | "spine"
@@ -1029,6 +1117,9 @@ fn reordered_body_site_token(token: &str) -> bool {
             | "throat"
             | "toe"
             | "tongue"
+            | "tonsil"
+            | "tonsils"
+            | "tympanic"
             | "umbilical"
             | "urethral"
             | "urinary"
@@ -1128,6 +1219,9 @@ fn find_flexible_body_site_match(
         }
 
         let found_index = found_index?;
+        if flexible_gap_contains_context_cue(&tokens[end_index + 1..found_index]) {
+            return None;
+        }
         if has_hard_boundary_between(
             original_text,
             tokens[end_index].original_end,
@@ -1145,6 +1239,78 @@ fn find_flexible_body_site_match(
     }
 
     Some((tokens[start_index].start, tokens[end_index].end))
+}
+
+fn find_body_site_then_head_match(
+    original_text: &str,
+    tokens: &[NormalizedToken<'_>],
+    start_index: usize,
+    pattern_tokens: &[String],
+) -> Option<(usize, usize)> {
+    const MAX_EXTRA_TOKENS: usize = 6;
+
+    if pattern_tokens.len() < 2 || !token_matches(&pattern_tokens[0], tokens.get(start_index)?.text)
+    {
+        return None;
+    }
+
+    let mut search_from = start_index + 1;
+    let mut extra_tokens = 0_usize;
+    let mut end_index = start_index;
+    for pattern_token in pattern_tokens.iter().skip(1) {
+        let mut found_index = None;
+        let search_limit = (search_from + MAX_EXTRA_TOKENS + 1).min(tokens.len());
+        for (candidate_index, candidate_token) in tokens
+            .iter()
+            .enumerate()
+            .take(search_limit)
+            .skip(search_from)
+        {
+            if token_matches(pattern_token, candidate_token.text) {
+                found_index = Some(candidate_index);
+                break;
+            }
+        }
+
+        let found_index = found_index?;
+        if flexible_gap_contains_context_cue(&tokens[end_index + 1..found_index]) {
+            return None;
+        }
+        if has_hard_boundary_between(
+            original_text,
+            tokens[end_index].original_end,
+            tokens[found_index].original_start,
+        ) {
+            return None;
+        }
+        extra_tokens += found_index.saturating_sub(search_from);
+        if extra_tokens > MAX_EXTRA_TOKENS {
+            return None;
+        }
+
+        search_from = found_index + 1;
+        end_index = found_index;
+    }
+
+    Some((tokens[start_index].start, tokens[end_index].end))
+}
+
+fn flexible_gap_contains_context_cue(tokens: &[NormalizedToken<'_>]) -> bool {
+    tokens.iter().any(|token| {
+        matches!(
+            token.text,
+            "no" | "not"
+                | "without"
+                | "nil"
+                | "negative"
+                | "possible"
+                | "possibly"
+                | "probable"
+                | "suspected"
+                | "query"
+                | "queried"
+        )
+    })
 }
 
 fn find_coordinated_shared_head_match(
@@ -1588,6 +1754,24 @@ mod tests {
         let matches = matcher.find_in_field(
             SoapField::History,
             "pain after fatty meals, calves fine",
+            false,
+        );
+
+        assert!(matches.is_empty());
+    }
+
+    #[test]
+    fn body_site_head_match_does_not_cross_negation_cues() {
+        let matcher = TerminologyMatcher::new(&artefact_with(vec![concept(
+            "1000000204",
+            "Perforation of tympanic membrane",
+            &["perforation of tympanic membrane"],
+        )]))
+        .unwrap();
+
+        let matches = matcher.find_in_field(
+            SoapField::Objective,
+            "TM red and bulging, no perforation",
             false,
         );
 

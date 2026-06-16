@@ -302,6 +302,7 @@ const ANATOMICAL_GAP_ALLOW: &[&str] = &[
     "hands",
     "hip",
     "hips",
+    "interdigital",
     "knee",
     "knees",
     "leg",
@@ -511,9 +512,7 @@ pub fn classify_assertion(
         .collect::<Vec<_>>();
 
     let view = sentence_view(field, sentence, rel_span, &rel_siblings);
-    let query_prefix = field_text[sentence_start..span_start]
-        .trim_end()
-        .ends_with('?');
+    let query_prefix = query_prefix_applies(&field_text[sentence_start..span_start]);
 
     let mut hits = Vec::new();
 
@@ -661,6 +660,15 @@ fn sentence_bounds(text: &str, span_start: usize, span_end: usize) -> (usize, us
     (start, end)
 }
 
+fn query_prefix_applies(prefix: &str) -> bool {
+    let prefix = prefix.trim_end();
+    let Some(before_query) = prefix.strip_suffix('?') else {
+        return false;
+    };
+    let before_query = before_query.trim_end();
+    before_query.is_empty() || before_query.ends_with(':')
+}
+
 fn sentence_view(
     field: SoapField,
     sentence: &str,
@@ -771,6 +779,9 @@ fn tight_gap_is_clear(
 ) -> bool {
     gap.clone().all(|index| {
         let token = &tokens[index];
+        if starts_affirmed_finding_after_list_separator(token) {
+            return false;
+        }
         !is_contrast(token)
             && (token.sibling
                 || has_digit(token)
@@ -778,6 +789,22 @@ fn tight_gap_is_clear(
                 || ANATOMICAL_GAP_ALLOW.contains(&token.text.as_str())
                 || is_negated_list_fragment(tokens, index, match_start))
     })
+}
+
+fn starts_affirmed_finding_after_list_separator(token: &Token) -> bool {
+    token.list_separator_before
+        && matches!(
+            token.text.as_str(),
+            "mild"
+                | "mildly"
+                | "moderate"
+                | "moderately"
+                | "severe"
+                | "severely"
+                | "small"
+                | "large"
+                | "significant"
+        )
 }
 
 fn is_negated_list_fragment(tokens: &[Token], index: usize, match_start: usize) -> bool {
@@ -1087,11 +1114,50 @@ mod tests {
             ("No spinal step/mass", "mass", vec!["step"]),
             ("No ear pain", "pain", vec![]),
             ("No DVT-type calf pain", "calf pain", vec![]),
+            ("No interdigital maceration", "maceration", vec![]),
         ] {
             let decision = classify_with_siblings(SoapField::History, text, target, &siblings);
             assert!(!decision.accepted, "expected suppression for {text}");
             assert_eq!(decision.assertion, AssertionStatus::Negated);
         }
+    }
+
+    #[test]
+    fn comma_after_negated_list_can_start_affirmed_finding() {
+        let decision = classify(
+            SoapField::Objective,
+            "Fundi - no haemorrhages/exudates, mild AV nipping",
+            "AV nipping",
+        );
+        assert!(decision.accepted);
+    }
+
+    #[test]
+    fn laterality_body_site_prefix_does_not_make_finding_uncertain() {
+        let decision = classify(
+            SoapField::Objective,
+            "L lower leg - erythema, warmth and swelling",
+            "erythema",
+        );
+        assert!(decision.accepted);
+    }
+
+    #[test]
+    fn objective_laterality_prefix_stays_affirmed_with_sibling_match() {
+        let decision = classify_with_siblings(
+            SoapField::Objective,
+            "L lower leg - erythema, warmth + swelling over shin",
+            "erythema",
+            &["warmth"],
+        );
+        assert!(decision.accepted);
+    }
+
+    #[test]
+    fn objective_full_note_laterality_prefix_stays_affirmed() {
+        let text = "O/E: T 38.1, HR 96. L lower leg — erythema, warmth + swelling over shin, ~12x8cm, demarcated + outlined in pen.";
+        let decision = classify_with_siblings(SoapField::Objective, text, "erythema", &["warmth"]);
+        assert!(decision.accepted);
     }
 
     #[test]
@@ -1252,6 +1318,27 @@ mod tests {
         let decision = classify(SoapField::Assessment, "?pneumonia", "pneumonia");
         assert!(!decision.accepted);
         assert_eq!(decision.assertion, AssertionStatus::Uncertain);
+    }
+
+    #[test]
+    fn query_prefix_after_heading_is_uncertain() {
+        let decision = classify(
+            SoapField::Assessment,
+            "Impression: ? pneumonia",
+            "pneumonia",
+        );
+        assert!(!decision.accepted);
+        assert_eq!(decision.assertion, AssertionStatus::Uncertain);
+    }
+
+    #[test]
+    fn question_mark_separator_after_site_label_is_not_uncertain() {
+        let decision = classify(
+            SoapField::Objective,
+            "ENT ? throat injected",
+            "throat injected",
+        );
+        assert!(decision.accepted);
     }
 
     #[test]
