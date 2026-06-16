@@ -555,6 +555,39 @@ fn pv_bleeding_and_lower_abdominal_cramping_extract_specific_concepts() {
     assert_eq!(response.suppressed[0].assertion, AssertionStatus::Negated);
 }
 
+#[test]
+fn extracts_colloquial_weight_loss_variant() {
+    let extractor = Extractor::new(TerminologyArtefact {
+        schema_version: 1,
+        terminology_version: "test".to_string(),
+        source_release: "test".to_string(),
+        refset_id: "fixture-symptoms".to_string(),
+        generated_at_utc: "test".to_string(),
+        artefact_hash: "UNVERIFIED".to_string(),
+        concepts: vec![concept(
+            "267024001",
+            "Abnormal weight loss",
+            &["abnormal weight loss", "losing weight"],
+        )],
+    })
+    .unwrap();
+
+    let response = extractor
+        .extract(ExtractRequest {
+            history: "c/o losing weight ~3-4/12 without trying".to_string(),
+            include_suppressed: true,
+            ..ExtractRequest::default()
+        })
+        .unwrap();
+
+    assert!(response.matches.iter().any(|item| {
+        item.concept_id == "267024001"
+            && item.preferred_term == "Abnormal weight loss"
+            && item.matched_text == "losing weight"
+    }));
+    assert!(response.suppressed.is_empty());
+}
+
 fn concept(
     concept_id: &str,
     preferred_term: &str,

@@ -1794,6 +1794,15 @@ fn colloquial_symptom_variants(normalized: &str) -> Vec<String> {
             variants.push("gaining weight".to_string());
             variants.push("put on weight".to_string());
         }
+        "abnormal weight loss" | "abnormal decrease in weight" => {
+            variants.push("weight loss".to_string());
+            variants.push("lost weight".to_string());
+            variants.push("losing weight".to_string());
+        }
+        "unintentional weight loss" | "involuntary weight loss" => {
+            variants.push("losing weight without trying".to_string());
+            variants.push("lost weight without trying".to_string());
+        }
         _ => {}
     }
 
@@ -2210,6 +2219,19 @@ mod tests {
         assert!(poor_sleep
             .iter()
             .any(|variant| variant.term == "sleep poor"));
+
+        let weight_loss = derive_description_variants("Abnormal weight loss");
+        assert!(weight_loss
+            .iter()
+            .any(|variant| variant.term == "losing weight"));
+        assert!(weight_loss
+            .iter()
+            .any(|variant| variant.term == "lost weight"));
+
+        let unintentional_weight_loss = derive_description_variants("Unintentional weight loss");
+        assert!(unintentional_weight_loss
+            .iter()
+            .any(|variant| variant.term == "losing weight without trying"));
 
         let palpitations = derive_description_variants("Palpitations");
         assert!(palpitations
