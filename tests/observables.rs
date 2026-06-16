@@ -297,6 +297,11 @@ fn suppresses_peripheral_vascular_exam_observable_false_positives() {
             "Movement of neck",
             &[("movement of neck", false)],
         ),
+        observable_concept(
+            "250892005",
+            "Most comfortable listening level",
+            &[("MCL", false)],
+        ),
     ]);
 
     let first = extractor
@@ -359,6 +364,7 @@ fn suppresses_peripheral_vascular_exam_observable_false_positives() {
     assert!(!positives.contains(&("87572000", "Reflexes")));
     assert!(!positives.contains(&("85352007", "Coordination")));
     assert!(!positives.contains(&("364417002", "Neck - paraspinal tenderness, full ROM")));
+    assert!(!positives.contains(&("250892005", "MCL")));
     for concept_id in [
         "404980009",
         "9964006",
@@ -378,4 +384,23 @@ fn suppresses_peripheral_vascular_exam_observable_false_positives() {
             "expected qualitative exam suppression for {concept_id}"
         );
     }
+
+    let knee = extractor
+        .extract_observables(ObservableExtractRequest {
+            objective: "R knee - moderate effusion. Tender medial joint line + over MCL. Valgus stress - pain medially but stable.".to_string(),
+            include_suppressed: true,
+            refset_id: Some("fixture-observables".to_string()),
+            ..ObservableExtractRequest::default()
+        })
+        .unwrap();
+
+    assert!(knee.matches.is_empty());
+    assert!(knee.suppressed.iter().any(|item| {
+        item.concept_id == "250892005"
+            && item.matched_text == "MCL"
+            && item.assertion == AssertionStatus::Ambiguous
+            && item
+                .rule_ids
+                .contains(&"CTX_OBSERVABLE_AUDIOLOGY_ACRONYM_IN_LIGAMENT_CONTEXT".to_string())
+    }));
 }

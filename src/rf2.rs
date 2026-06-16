@@ -799,7 +799,15 @@ fn split_acronym_expansion(term: &str) -> Option<(&str, &str)> {
     let (prefix, expansion) = term.split_once(" - ")?;
     let prefix = prefix.trim();
     let expansion = expansion.trim();
-    if prefix.len() < 3 || prefix.len() > 12 || expansion.len() < 5 {
+    let short_digit_clinical_prefix =
+        prefix.len() == 2 && prefix.chars().any(|ch| ch.is_ascii_digit());
+    if (!short_digit_clinical_prefix && prefix.len() < 3)
+        || prefix.len() > 12
+        || expansion.len() < 5
+    {
+        return None;
+    }
+    if short_digit_clinical_prefix && !safe_short_digit_acronym_expansion(prefix, expansion) {
         return None;
     }
     if !is_acronym_like_prefix(prefix) {
@@ -817,6 +825,10 @@ fn is_acronym_like_prefix(prefix: &str) -> bool {
     let letter_count = prefix.chars().filter(|ch| ch.is_ascii_alphabetic()).count();
 
     upper_count >= 2 || (prefix.chars().any(|ch| ch.is_ascii_digit()) && letter_count > 0)
+}
+
+fn safe_short_digit_acronym_expansion(prefix: &str, expansion: &str) -> bool {
+    matches!(prefix, "S3" | "S4" | "P2") && normalize_term(expansion).contains("heart sound")
 }
 
 fn acronym_matches_expansion(prefix: &str, expansion: &str) -> bool {
@@ -1645,7 +1657,6 @@ fn colloquial_symptom_variants(normalized: &str) -> Vec<String> {
         "nasal discharge" | "anterior rhinorrhea" | "anterior rhinorrhoea" => {
             variants.push("runny nose".to_string());
             variants.push("watery nasal discharge".to_string());
-            variants.push("watery discharge".to_string());
         }
         "nocturia" => {}
         "pain in pelvis" => {
@@ -1660,12 +1671,37 @@ fn colloquial_symptom_variants(normalized: &str) -> Vec<String> {
         }
         "coarse respiratory crackles" => {
             variants.push("coarse crackles".to_string());
+            variants.push("coarse crepitations".to_string());
         }
         "fine respiratory crackles" => {
             variants.push("fine crackles".to_string());
+            variants.push("fine crepitations".to_string());
+            variants.push("end inspiratory crackles".to_string());
+            variants.push("fine end inspiratory crackles".to_string());
         }
         "arteriovenous crossing changes" => {
             variants.push("av nipping".to_string());
+        }
+        "chest dull to percussion" => {
+            variants.push("dull percussion".to_string());
+            variants.push("dull percussion note".to_string());
+            variants.push("percussion dull".to_string());
+        }
+        "crossed leg raising sign" => {
+            variants.push("crossed slr".to_string());
+            variants.push("crossed straight leg raise".to_string());
+            variants.push("crossed straight leg raising".to_string());
+        }
+        "finding of straight leg raise" => {
+            variants.push("slr".to_string());
+            variants.push("straight leg raise".to_string());
+            variants.push("straight leg raising".to_string());
+        }
+        "hypesthesia" => {
+            variants.push("sensation reduced".to_string());
+            variants.push("reduced sensation".to_string());
+            variants.push("sensation impaired".to_string());
+            variants.push("impaired sensation".to_string());
         }
         "bulging tympanic membrane" => {
             variants.push("tympanic membrane bulging".to_string());
@@ -1693,6 +1729,15 @@ fn colloquial_symptom_variants(normalized: &str) -> Vec<String> {
             variants.push("reduced vibration".to_string());
             variants.push("vibration sense reduced".to_string());
         }
+        "impaired body position sense" => {
+            variants.push("proprioception reduced".to_string());
+            variants.push("reduced proprioception".to_string());
+            variants.push("proprioception impaired".to_string());
+            variants.push("impaired proprioception".to_string());
+        }
+        "increased vocal resonance" => {
+            variants.push("vocal resonance increased".to_string());
+        }
         "injected tympanic membrane" => {
             variants.push("red tympanic membrane".to_string());
             variants.push("tympanic membrane red".to_string());
@@ -1713,6 +1758,42 @@ fn colloquial_symptom_variants(normalized: &str) -> Vec<String> {
             variants.push("throat injected".to_string());
             variants.push("injected throat".to_string());
             variants.push("throat mildly injected".to_string());
+        }
+        "scleral injection" => {
+            variants.push("ciliary injection".to_string());
+            variants.push("circumcorneal injection".to_string());
+            variants.push("limbal flush".to_string());
+        }
+        "spurling sign" => {
+            variants.push("spurling test".to_string());
+            variants.push("spurlings test".to_string());
+            variants.push("spurling test positive".to_string());
+            variants.push("spurlings test positive".to_string());
+        }
+        "10g monofilament sensation absent" => {
+            variants.push("monofilament sensation absent".to_string());
+            variants.push("monofilament absent".to_string());
+            variants.push("10g monofilament absent".to_string());
+        }
+        "normal capillary filling" => {
+            variants.push("capillary refill normal".to_string());
+            variants.push("normal capillary refill".to_string());
+            variants.push("crt normal".to_string());
+            variants.push("crt brisk".to_string());
+        }
+        "increased capillary filling time" => {
+            variants.push("capillary refill prolonged".to_string());
+            variants.push("prolonged capillary refill".to_string());
+            variants.push("crt prolonged".to_string());
+        }
+        "ottawa ankle rules test negative" => {
+            variants.push("ottawa ankle rules negative".to_string());
+            variants.push("ottawa ankle foot rules negative".to_string());
+            variants.push("ottawa ankle and foot rules negative".to_string());
+        }
+        "arterial bruit" => {
+            variants.push("thyroid bruit".to_string());
+            variants.push("bruit over gland".to_string());
         }
         "poor stream of urine" => {
             variants.push("poor flow".to_string());
@@ -2264,6 +2345,13 @@ mod tests {
             .any(|variant| variant.term == "eye discharge"
                 && variant.source == "openehr-description-clinical-phrase-variant"
                 && !variant.allow_ambiguous));
+        let rhinorrhea = derive_description_variants("Anterior rhinorrhea");
+        assert!(rhinorrhea
+            .iter()
+            .any(|variant| variant.term == "watery nasal discharge"));
+        assert!(!rhinorrhea
+            .iter()
+            .any(|variant| variant.term == "watery discharge"));
 
         let galactorrhea =
             derive_description_variants("Galactorrhea not associated with childbirth");
@@ -2316,6 +2404,21 @@ mod tests {
 
         let calf = derive_description_variants("Swollen calf");
         assert!(calf.iter().any(|variant| variant.term == "calf swollen"));
+
+        let scleral = derive_description_variants("Scleral injection");
+        assert!(scleral
+            .iter()
+            .any(|variant| variant.term == "ciliary injection"));
+
+        let coarse = derive_description_variants("Coarse respiratory crackles");
+        assert!(coarse
+            .iter()
+            .any(|variant| variant.term == "coarse crepitations"));
+
+        let s3 = derive_description_variants("S3 - Third heart sound");
+        assert!(s3
+            .iter()
+            .any(|variant| variant.term == "S3" && variant.allow_ambiguous));
     }
 
     #[test]

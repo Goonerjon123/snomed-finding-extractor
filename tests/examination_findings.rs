@@ -1,4 +1,5 @@
 use snomed_finding_extractor::rf2::build_from_openehr_valueset;
+use snomed_finding_extractor::terminology::{ConceptEntry, TermVariant, TerminologyArtefact};
 use snomed_finding_extractor::{
     AssertionStatus, ExaminationFindingsExtractRequest, Extractor, SoapField,
 };
@@ -324,4 +325,155 @@ fn examination_findings_include_structured_normal_and_negative_exam_statements()
         .expect("power score match");
     assert_eq!(power.value.as_ref().unwrap().text, "5/5");
     assert!(response.suppressed.is_empty());
+}
+
+#[test]
+fn examination_findings_include_common_status_lists_and_named_tests() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("fixtures")
+        .join("synthetic-examination-findings.openehr-valueset.json");
+    let artefact = build_from_openehr_valueset(path).unwrap();
+    let extractor = Extractor::new(artefact).unwrap();
+
+    let response = extractor
+        .extract_examination_findings(ExaminationFindingsExtractRequest {
+            note_id: Some("exam-7".to_string()),
+            objective: "Power: L EHL 4/5, ankle dorsiflexion 4/5. Reflexes: KJ symmetrical, AJ reduced L. 10g monofilament sensation absent. Vibration reduced. Proprioception reduced. DP + PT absent R. CRT <3s. SLR positive L, crossed SLR negative. Spurling's test positive. Kernig + Brudzinski negative. Hoffman's negative.".to_string(),
+            include_suppressed: true,
+            refset_id: Some("932266131000001101".to_string()),
+        })
+        .unwrap();
+
+    let matches = response
+        .matches
+        .iter()
+        .map(|item| {
+            (
+                item.concept_id.as_str(),
+                item.preferred_term.as_str(),
+                item.assertion,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    for expected in [
+        (
+            "249948009",
+            "Grade of muscle power",
+            AssertionStatus::Affirmed,
+        ),
+        ("835279003", "Decreased reflex", AssertionStatus::Affirmed),
+        (
+            "390932001",
+            "10g monofilament sensation absent",
+            AssertionStatus::Affirmed,
+        ),
+        (
+            "299934008",
+            "Impaired vibration sensation",
+            AssertionStatus::Affirmed,
+        ),
+        (
+            "103003004",
+            "Impaired body position sense",
+            AssertionStatus::Affirmed,
+        ),
+        (
+            "301170006",
+            "Dorsalis pulse absent",
+            AssertionStatus::Affirmed,
+        ),
+        (
+            "301169005",
+            "Posterior tibial pulse absent",
+            AssertionStatus::Affirmed,
+        ),
+        (
+            "45332005",
+            "Normal capillary filling",
+            AssertionStatus::Normal,
+        ),
+        (
+            "366448008",
+            "Finding of straight leg raise",
+            AssertionStatus::Affirmed,
+        ),
+        (
+            "82668000",
+            "Crossed leg raising sign",
+            AssertionStatus::Negated,
+        ),
+        ("19411004", "Spurling sign", AssertionStatus::Affirmed),
+        ("39051003", "Kernig's sign", AssertionStatus::Negated),
+        ("82345001", "Brudzinski's sign", AssertionStatus::Negated),
+        (
+            "299849001",
+            "Hoffman's reflex positive",
+            AssertionStatus::Negated,
+        ),
+    ] {
+        assert!(
+            matches.contains(&expected),
+            "expected structured status/test match {expected:?}; got {matches:?}"
+        );
+    }
+}
+
+#[test]
+fn examination_findings_suppress_bare_normal_and_wrong_site_false_positives() {
+    let artefact = TerminologyArtefact {
+        schema_version: 1,
+        terminology_version: "test".to_string(),
+        source_release: "test".to_string(),
+        refset_id: "test-refset".to_string(),
+        generated_at_utc: "test".to_string(),
+        concepts: vec![
+            concept("277233008", "Anterior rhinorrhea", &["watery discharge"]),
+            concept("15188001", "Hearing loss", &["hearing"]),
+            concept("246581004", "Peripheral reflex", &["reflex"]),
+        ],
+        artefact_hash: String::new(),
+    };
+    let extractor = Extractor::new(artefact).unwrap();
+
+    let response = extractor
+        .extract_examination_findings(ExaminationFindingsExtractRequest {
+            note_id: Some("exam-8".to_string()),
+            objective: "R eye watery discharge. Hearing grossly normal. Red reflex present."
+                .to_string(),
+            include_suppressed: true,
+            refset_id: None,
+        })
+        .unwrap();
+
+    assert!(!response
+        .matches
+        .iter()
+        .any(|item| item.concept_id == "277233008"));
+    assert!(!response
+        .matches
+        .iter()
+        .any(|item| item.concept_id == "15188001"));
+    assert!(!response.matches.iter().any(|item| {
+        item.concept_id == "246581004" && item.matched_text.eq_ignore_ascii_case("red reflex")
+    }));
+}
+
+fn concept(concept_id: &str, preferred_term: &str, variants: &[&str]) -> ConceptEntry {
+    ConceptEntry {
+        concept_id: concept_id.to_string(),
+        active: true,
+        preferred_term: preferred_term.to_string(),
+        descriptions: vec![],
+        variants: variants
+            .iter()
+            .map(|text| TermVariant {
+                text: text.to_string(),
+                source: "fixture".to_string(),
+                description_id: None,
+                allow_ambiguous: false,
+                requires_numeric_value: false,
+            })
+            .collect(),
+    }
 }

@@ -262,6 +262,14 @@ struct StandaloneExamFeature {
     assertion: AssertionStatus,
 }
 
+struct NamedExamTestFeature {
+    concept_id: &'static str,
+    preferred_term: &'static str,
+    subjects: &'static [&'static str],
+    statuses_after: &'static [ExamResultStatus],
+    statuses_before: &'static [ExamResultStatus],
+}
+
 struct NegatedExamSign {
     concept_id: &'static str,
     preferred_term: &'static str,
@@ -320,6 +328,100 @@ const STATUS_FULL_OR_NORMAL: &[ExamResultStatus] = &[
     },
 ];
 
+const STATUS_REDUCED: &[ExamResultStatus] = &[
+    ExamResultStatus {
+        phrase: "reduced",
+        assertion: AssertionStatus::Affirmed,
+    },
+    ExamResultStatus {
+        phrase: "diminished",
+        assertion: AssertionStatus::Affirmed,
+    },
+];
+
+const STATUS_ABSENT: &[ExamResultStatus] = &[ExamResultStatus {
+    phrase: "absent",
+    assertion: AssertionStatus::Affirmed,
+}];
+
+const STATUS_BRISK: &[ExamResultStatus] = &[ExamResultStatus {
+    phrase: "brisk",
+    assertion: AssertionStatus::Affirmed,
+}];
+
+const STATUS_PROLONGED: &[ExamResultStatus] = &[ExamResultStatus {
+    phrase: "prolonged",
+    assertion: AssertionStatus::Affirmed,
+}];
+
+const STATUS_BRISK_OR_NORMAL: &[ExamResultStatus] = &[
+    ExamResultStatus {
+        phrase: "brisk",
+        assertion: AssertionStatus::Normal,
+    },
+    ExamResultStatus {
+        phrase: "normal",
+        assertion: AssertionStatus::Normal,
+    },
+];
+
+const STATUS_NEGATIVE: &[ExamResultStatus] = &[
+    ExamResultStatus {
+        phrase: "negative",
+        assertion: AssertionStatus::Negated,
+    },
+    ExamResultStatus {
+        phrase: "neg",
+        assertion: AssertionStatus::Negated,
+    },
+];
+
+const STATUS_POSITIVE_OR_NEGATIVE: &[ExamResultStatus] = &[
+    ExamResultStatus {
+        phrase: "positive",
+        assertion: AssertionStatus::Affirmed,
+    },
+    ExamResultStatus {
+        phrase: "pos",
+        assertion: AssertionStatus::Affirmed,
+    },
+    ExamResultStatus {
+        phrase: "negative",
+        assertion: AssertionStatus::Negated,
+    },
+    ExamResultStatus {
+        phrase: "neg",
+        assertion: AssertionStatus::Negated,
+    },
+];
+
+const STATUS_POSITIVE_PAIN_CLICK_OR_NEGATIVE: &[ExamResultStatus] = &[
+    ExamResultStatus {
+        phrase: "positive",
+        assertion: AssertionStatus::Affirmed,
+    },
+    ExamResultStatus {
+        phrase: "pos",
+        assertion: AssertionStatus::Affirmed,
+    },
+    ExamResultStatus {
+        phrase: "pain click",
+        assertion: AssertionStatus::Affirmed,
+    },
+    ExamResultStatus {
+        phrase: "pain and click",
+        assertion: AssertionStatus::Affirmed,
+    },
+    ExamResultStatus {
+        phrase: "negative",
+        assertion: AssertionStatus::Negated,
+    },
+    ExamResultStatus {
+        phrase: "neg",
+        assertion: AssertionStatus::Negated,
+    },
+];
+
 const STATUS_SNT_OR_SOFT_NONTENDER: &[ExamResultStatus] = &[
     ExamResultStatus {
         phrase: "snt",
@@ -337,6 +439,19 @@ const STATUS_SNT_OR_SOFT_NONTENDER: &[ExamResultStatus] = &[
         phrase: "soft nontender",
         assertion: AssertionStatus::Normal,
     },
+];
+
+const REFLEX_SUBJECTS: &[&str] = &[
+    "reflex",
+    "reflexes",
+    "aj",
+    "kj",
+    "ankle jerk",
+    "knee jerk",
+    "biceps",
+    "brachioradialis",
+    "supinator",
+    "triceps",
 ];
 
 const STATUS_NONTENDER: &[ExamResultStatus] = &[
@@ -392,6 +507,97 @@ const STRUCTURED_EXAM_FEATURES: &[StructuredExamFeature] = &[
         statuses_before: &[],
     },
     StructuredExamFeature {
+        concept_id: "835279003",
+        preferred_term: "Decreased reflex",
+        subjects: REFLEX_SUBJECTS,
+        statuses_after: STATUS_REDUCED,
+        statuses_before: STATUS_REDUCED,
+    },
+    StructuredExamFeature {
+        concept_id: "37280007",
+        preferred_term: "Absent reflex",
+        subjects: REFLEX_SUBJECTS,
+        statuses_after: STATUS_ABSENT,
+        statuses_before: STATUS_ABSENT,
+    },
+    StructuredExamFeature {
+        concept_id: "86854008",
+        preferred_term: "Hyperreflexia",
+        subjects: REFLEX_SUBJECTS,
+        statuses_after: STATUS_BRISK,
+        statuses_before: STATUS_BRISK,
+    },
+    StructuredExamFeature {
+        concept_id: "397974008",
+        preferred_term: "Hypesthesia",
+        subjects: &["sensation", "sensory"],
+        statuses_after: STATUS_REDUCED,
+        statuses_before: STATUS_REDUCED,
+    },
+    StructuredExamFeature {
+        concept_id: "397974008",
+        preferred_term: "Hypesthesia",
+        subjects: &["sensation", "sensory"],
+        statuses_after: STATUS_ABSENT,
+        statuses_before: STATUS_ABSENT,
+    },
+    StructuredExamFeature {
+        concept_id: "299934008",
+        preferred_term: "Impaired vibration sensation",
+        subjects: &["vibration", "vibration sense"],
+        statuses_after: STATUS_REDUCED,
+        statuses_before: STATUS_REDUCED,
+    },
+    StructuredExamFeature {
+        concept_id: "103003004",
+        preferred_term: "Impaired body position sense",
+        subjects: &["proprioception", "position sense"],
+        statuses_after: STATUS_REDUCED,
+        statuses_before: STATUS_REDUCED,
+    },
+    StructuredExamFeature {
+        concept_id: "390932001",
+        preferred_term: "10g monofilament sensation absent",
+        subjects: &["monofilament", "10g monofilament", "monofilament sensation"],
+        statuses_after: STATUS_ABSENT,
+        statuses_before: STATUS_ABSENT,
+    },
+    StructuredExamFeature {
+        concept_id: "301161008",
+        preferred_term: "Peripheral pulse absent",
+        subjects: &["pulse", "pulses", "pedal pulses"],
+        statuses_after: STATUS_ABSENT,
+        statuses_before: STATUS_ABSENT,
+    },
+    StructuredExamFeature {
+        concept_id: "301170006",
+        preferred_term: "Dorsalis pulse absent",
+        subjects: &["dp", "dorsalis pedis"],
+        statuses_after: STATUS_ABSENT,
+        statuses_before: STATUS_ABSENT,
+    },
+    StructuredExamFeature {
+        concept_id: "301169005",
+        preferred_term: "Posterior tibial pulse absent",
+        subjects: &["pt", "posterior tibial"],
+        statuses_after: STATUS_ABSENT,
+        statuses_before: STATUS_ABSENT,
+    },
+    StructuredExamFeature {
+        concept_id: "45332005",
+        preferred_term: "Normal capillary filling",
+        subjects: &["crt", "capillary refill", "capillary refill time"],
+        statuses_after: STATUS_BRISK_OR_NORMAL,
+        statuses_before: &[],
+    },
+    StructuredExamFeature {
+        concept_id: "50427001",
+        preferred_term: "Increased capillary filling time",
+        subjects: &["crt", "capillary refill", "capillary refill time"],
+        statuses_after: STATUS_PROLONGED,
+        statuses_before: STATUS_PROLONGED,
+    },
+    StructuredExamFeature {
         concept_id: "363844006",
         preferred_term: "Pattern of coordination",
         subjects: &["coordination"],
@@ -440,6 +646,100 @@ const STANDALONE_EXAM_FEATURES: &[StandaloneExamFeature] = &[
         preferred_term: "Orientation",
         patterns: &["orientated", "oriented"],
         assertion: AssertionStatus::Normal,
+    },
+];
+
+const NAMED_EXAM_TEST_FEATURES: &[NamedExamTestFeature] = &[
+    NamedExamTestFeature {
+        concept_id: "366448008",
+        preferred_term: "Finding of straight leg raise",
+        subjects: &["slr", "straight leg raise", "straight leg raising"],
+        statuses_after: STATUS_POSITIVE_OR_NEGATIVE,
+        statuses_before: STATUS_POSITIVE_OR_NEGATIVE,
+    },
+    NamedExamTestFeature {
+        concept_id: "82668000",
+        preferred_term: "Crossed leg raising sign",
+        subjects: &[
+            "crossed slr",
+            "crossed straight leg raise",
+            "crossed straight leg raising",
+        ],
+        statuses_after: STATUS_POSITIVE_OR_NEGATIVE,
+        statuses_before: STATUS_POSITIVE_OR_NEGATIVE,
+    },
+    NamedExamTestFeature {
+        concept_id: "19411004",
+        preferred_term: "Spurling sign",
+        subjects: &["spurling", "spurling s", "spurling test", "spurling s test"],
+        statuses_after: STATUS_POSITIVE_OR_NEGATIVE,
+        statuses_before: STATUS_POSITIVE_OR_NEGATIVE,
+    },
+    NamedExamTestFeature {
+        concept_id: "299391009",
+        preferred_term: "McMurray test positive",
+        subjects: &["mcmurray", "mcmurray s", "mcmurray test", "mcmurray s test"],
+        statuses_after: STATUS_POSITIVE_PAIN_CLICK_OR_NEGATIVE,
+        statuses_before: STATUS_POSITIVE_OR_NEGATIVE,
+    },
+    NamedExamTestFeature {
+        concept_id: "299393007",
+        preferred_term: "Lachman test positive",
+        subjects: &["lachman", "lachman s", "lachman test", "lachman s test"],
+        statuses_after: STATUS_POSITIVE_OR_NEGATIVE,
+        statuses_before: STATUS_POSITIVE_OR_NEGATIVE,
+    },
+    NamedExamTestFeature {
+        concept_id: "366605006",
+        preferred_term: "Anterior drawer test - finding",
+        subjects: &["anterior drawer", "anterior drawer test"],
+        statuses_after: STATUS_POSITIVE_OR_NEGATIVE,
+        statuses_before: STATUS_POSITIVE_OR_NEGATIVE,
+    },
+    NamedExamTestFeature {
+        concept_id: "299849001",
+        preferred_term: "Hoffman's reflex positive",
+        subjects: &[
+            "hoffman",
+            "hoffman s",
+            "hoffmann",
+            "hoffmann s",
+            "hoffman reflex",
+            "hoffmann reflex",
+        ],
+        statuses_after: STATUS_POSITIVE_OR_NEGATIVE,
+        statuses_before: STATUS_POSITIVE_OR_NEGATIVE,
+    },
+    NamedExamTestFeature {
+        concept_id: "39051003",
+        preferred_term: "Kernig's sign",
+        subjects: &["kernig", "kernig s", "kernig sign", "kernig s sign"],
+        statuses_after: STATUS_POSITIVE_OR_NEGATIVE,
+        statuses_before: STATUS_POSITIVE_OR_NEGATIVE,
+    },
+    NamedExamTestFeature {
+        concept_id: "82345001",
+        preferred_term: "Brudzinski's sign",
+        subjects: &[
+            "brudzinski",
+            "brudzinski s",
+            "brudzinski sign",
+            "brudzinski s sign",
+        ],
+        statuses_after: STATUS_POSITIVE_OR_NEGATIVE,
+        statuses_before: STATUS_POSITIVE_OR_NEGATIVE,
+    },
+    NamedExamTestFeature {
+        concept_id: "716521001",
+        preferred_term: "Ottawa ankle rules test negative",
+        subjects: &[
+            "ottawa ankle",
+            "ottawa ankle rules",
+            "ottawa ankle foot rules",
+            "ottawa ankle and foot rules",
+        ],
+        statuses_after: STATUS_NEGATIVE,
+        statuses_before: STATUS_NEGATIVE,
     },
 ];
 
@@ -506,8 +806,12 @@ fn add_normal_examination_matches(
     add_cranial_nerve_exam_matches(field, field_text, &normalized, &tokens, matches);
     add_power_score_exam_matches(field, field_text, &normalized, &tokens, matches);
     add_standalone_exam_matches(field, field_text, &normalized, &tokens, matches);
+    add_named_exam_test_matches(field, field_text, &normalized, &tokens, matches);
     add_negated_exam_sign_matches(field, field_text, &normalized, &tokens, matches);
     add_anatomical_tenderness_matches(field, field_text, &normalized, &tokens, matches);
+    add_muscle_weakness_matches(field, field_text, &normalized, &tokens, matches);
+    add_capillary_refill_threshold_matches(field, field_text, &normalized, &tokens, matches);
+    add_breast_lump_matches(field, field_text, &normalized, &tokens, matches);
 }
 
 fn exam_tokens(normalized: &NormalizedText) -> Vec<ExamToken> {
@@ -555,6 +859,12 @@ fn add_structured_feature_status_matches(
                 let Some(subject_end) = match_phrase_at(tokens, subject_start, subject) else {
                     continue;
                 };
+                if feature.concept_id == "246581004"
+                    && subject_start > 0
+                    && tokens[subject_start - 1].text == "red"
+                {
+                    continue;
+                }
 
                 if let Some((status_start, status_end, status)) =
                     find_status_after_subject(tokens, subject_end, feature.statuses_after)
@@ -650,40 +960,73 @@ fn add_power_score_exam_matches(
         else {
             continue;
         };
-        let Some(value_token) = tokens.get(subject_end) else {
-            continue;
-        };
-        if !looks_like_exam_score(value_token.text.as_str()) {
-            continue;
+        if let Some(value_token) = tokens.get(subject_end) {
+            if looks_like_exam_score(value_token.text.as_str()) {
+                let assertion = if score_is_normal(value_token.text.as_str()) {
+                    AssertionStatus::Normal
+                } else {
+                    AssertionStatus::Affirmed
+                };
+                let value = MeasuredValue {
+                    text: field_text[value_token.orig_start..value_token.orig_end].to_string(),
+                    unit: None,
+                    span_start: value_token.orig_start,
+                    span_end: value_token.orig_end,
+                };
+
+                add_structured_exam_match_from_tokens(
+                    field,
+                    field_text,
+                    normalized,
+                    tokens,
+                    StructuredExamMatchSpec {
+                        start_token: start,
+                        end_token: subject_end + 1,
+                        concept_id: "249948009",
+                        preferred_term: "Grade of muscle power",
+                        assertion,
+                        value: Some(value),
+                    },
+                    matches,
+                );
+            }
         }
 
-        let assertion = if score_is_normal(value_token.text.as_str()) {
-            AssertionStatus::Normal
-        } else {
-            AssertionStatus::Affirmed
-        };
-        let value = MeasuredValue {
-            text: field_text[value_token.orig_start..value_token.orig_end].to_string(),
-            unit: None,
-            span_start: value_token.orig_start,
-            span_end: value_token.orig_end,
-        };
+        let scan_limit = power_score_clause_limit(field_text, tokens, subject_end);
+        for score_index in subject_end..scan_limit {
+            if !looks_like_exam_score(tokens[score_index].text.as_str()) {
+                continue;
+            }
+            let assertion = if score_is_normal(tokens[score_index].text.as_str()) {
+                AssertionStatus::Normal
+            } else {
+                AssertionStatus::Affirmed
+            };
+            let value = MeasuredValue {
+                text: field_text[tokens[score_index].orig_start..tokens[score_index].orig_end]
+                    .to_string(),
+                unit: None,
+                span_start: tokens[score_index].orig_start,
+                span_end: tokens[score_index].orig_end,
+            };
+            let context_start = power_score_context_start(tokens, subject_end, score_index);
 
-        add_structured_exam_match_from_tokens(
-            field,
-            field_text,
-            normalized,
-            tokens,
-            StructuredExamMatchSpec {
-                start_token: start,
-                end_token: subject_end + 1,
-                concept_id: "249948009",
-                preferred_term: "Grade of muscle power",
-                assertion,
-                value: Some(value),
-            },
-            matches,
-        );
+            add_structured_exam_match_from_tokens(
+                field,
+                field_text,
+                normalized,
+                tokens,
+                StructuredExamMatchSpec {
+                    start_token: context_start,
+                    end_token: score_index + 1,
+                    concept_id: "249948009",
+                    preferred_term: "Grade of muscle power",
+                    assertion,
+                    value: Some(value),
+                },
+                matches,
+            );
+        }
     }
 }
 
@@ -715,6 +1058,64 @@ fn add_standalone_exam_matches(
                     },
                     matches,
                 );
+            }
+        }
+    }
+}
+
+fn add_named_exam_test_matches(
+    field: SoapField,
+    field_text: &str,
+    normalized: &NormalizedText,
+    tokens: &[ExamToken],
+    matches: &mut Vec<FindingMatch>,
+) {
+    for feature in NAMED_EXAM_TEST_FEATURES {
+        for subject_start in 0..tokens.len() {
+            for subject in feature.subjects {
+                let Some(subject_end) = match_phrase_at(tokens, subject_start, subject) else {
+                    continue;
+                };
+
+                if let Some((_, status_end, status)) =
+                    find_status_after_subject(tokens, subject_end, feature.statuses_after)
+                {
+                    add_structured_exam_match_from_tokens(
+                        field,
+                        field_text,
+                        normalized,
+                        tokens,
+                        StructuredExamMatchSpec {
+                            start_token: subject_start,
+                            end_token: status_end,
+                            concept_id: feature.concept_id,
+                            preferred_term: feature.preferred_term,
+                            assertion: status.assertion,
+                            value: None,
+                        },
+                        matches,
+                    );
+                }
+
+                if let Some((status_start, _, status)) =
+                    find_status_before_subject(tokens, subject_start, feature.statuses_before)
+                {
+                    add_structured_exam_match_from_tokens(
+                        field,
+                        field_text,
+                        normalized,
+                        tokens,
+                        StructuredExamMatchSpec {
+                            start_token: status_start,
+                            end_token: subject_end,
+                            concept_id: feature.concept_id,
+                            preferred_term: feature.preferred_term,
+                            assertion: status.assertion,
+                            value: None,
+                        },
+                        matches,
+                    );
+                }
             }
         }
     }
@@ -813,6 +1214,164 @@ fn add_anatomical_tenderness_matches(
                 end_token: head_index + 1,
                 concept_id: "301399007",
                 preferred_term: "Musculoskeletal tenderness",
+                assertion: AssertionStatus::Affirmed,
+                value: None,
+            },
+            matches,
+        );
+    }
+}
+
+fn add_muscle_weakness_matches(
+    field: SoapField,
+    field_text: &str,
+    normalized: &NormalizedText,
+    tokens: &[ExamToken],
+    matches: &mut Vec<FindingMatch>,
+) {
+    for head_index in 0..tokens.len() {
+        if !matches!(tokens[head_index].text.as_str(), "weak" | "weakness") {
+            continue;
+        }
+        if preceding_negation_token(tokens, head_index, 5) {
+            continue;
+        }
+
+        let lower = head_index.saturating_sub(5);
+        let context = &tokens[lower..head_index];
+        let concept = if context.iter().any(|token| {
+            matches!(
+                token.text.as_str(),
+                "face" | "facial" | "forehead" | "nasolabial"
+            )
+        }) {
+            Some(("95666008", "Weakness of face muscles"))
+        } else if context
+            .iter()
+            .any(|token| muscle_weakness_context_token(token.text.as_str()))
+        {
+            Some(("26544005", "Muscle weakness"))
+        } else {
+            None
+        };
+        let Some((concept_id, preferred_term)) = concept else {
+            continue;
+        };
+
+        let mut start = head_index;
+        while start > lower
+            && muscle_weakness_context_token(tokens[start - 1].text.as_str())
+            && !exam_phrase_boundary_between(
+                field_text,
+                tokens[start - 1].orig_end,
+                tokens[start].orig_start,
+            )
+        {
+            start -= 1;
+        }
+
+        add_structured_exam_match_from_tokens(
+            field,
+            field_text,
+            normalized,
+            tokens,
+            StructuredExamMatchSpec {
+                start_token: start,
+                end_token: head_index + 1,
+                concept_id,
+                preferred_term,
+                assertion: AssertionStatus::Affirmed,
+                value: None,
+            },
+            matches,
+        );
+    }
+}
+
+fn add_capillary_refill_threshold_matches(
+    field: SoapField,
+    field_text: &str,
+    normalized: &NormalizedText,
+    tokens: &[ExamToken],
+    matches: &mut Vec<FindingMatch>,
+) {
+    for subject_start in 0..tokens.len() {
+        let Some(subject_end) = match_any_phrase_at(
+            tokens,
+            subject_start,
+            &["crt", "capillary refill", "capillary refill time"],
+        ) else {
+            continue;
+        };
+
+        let limit = (subject_end + 3).min(tokens.len());
+        for value_index in subject_end..limit {
+            let Some(gap) =
+                field_text.get(tokens[subject_end - 1].orig_end..tokens[value_index].orig_end)
+            else {
+                continue;
+            };
+            if !gap.contains('<') || !looks_like_normal_crt_token(tokens[value_index].text.as_str())
+            {
+                continue;
+            }
+
+            add_structured_exam_match_from_tokens(
+                field,
+                field_text,
+                normalized,
+                tokens,
+                StructuredExamMatchSpec {
+                    start_token: subject_start,
+                    end_token: value_index + 1,
+                    concept_id: "45332005",
+                    preferred_term: "Normal capillary filling",
+                    assertion: AssertionStatus::Normal,
+                    value: None,
+                },
+                matches,
+            );
+        }
+    }
+}
+
+fn add_breast_lump_matches(
+    field: SoapField,
+    field_text: &str,
+    normalized: &NormalizedText,
+    tokens: &[ExamToken],
+    matches: &mut Vec<FindingMatch>,
+) {
+    for head_index in 0..tokens.len() {
+        if !matches!(tokens[head_index].text.as_str(), "lump" | "mass") {
+            continue;
+        }
+        if preceding_negation_token(tokens, head_index, 5) {
+            continue;
+        }
+
+        let lower = head_index.saturating_sub(12);
+        let Some(site_index) = (lower..head_index).rev().find(|index| {
+            matches!(tokens[*index].text.as_str(), "breast" | "breasts")
+                && !breast_lump_boundary_between(
+                    field_text,
+                    tokens[*index].orig_end,
+                    tokens[head_index].orig_start,
+                )
+        }) else {
+            continue;
+        };
+
+        add_structured_exam_match_from_tokens(
+            field,
+            field_text,
+            normalized,
+            tokens,
+            StructuredExamMatchSpec {
+                start_token: site_index,
+                end_token: head_index + 1,
+                concept_id: "89164003",
+                preferred_term: "Breast lump",
                 assertion: AssertionStatus::Affirmed,
                 value: None,
             },
@@ -1028,6 +1587,56 @@ fn looks_like_exam_score(token: &str) -> bool {
             .all(|part| part.chars().all(|ch| ch.is_ascii_digit()))
 }
 
+fn power_score_clause_limit(field_text: &str, tokens: &[ExamToken], start: usize) -> usize {
+    let mut index = start;
+    let hard_limit = (start + 18).min(tokens.len());
+    while index < hard_limit {
+        if index > start
+            && exam_phrase_boundary_between(
+                field_text,
+                tokens[index - 1].orig_end,
+                tokens[index].orig_start,
+            )
+        {
+            break;
+        }
+        index += 1;
+    }
+    index
+}
+
+fn power_score_context_start(
+    tokens: &[ExamToken],
+    subject_end: usize,
+    score_index: usize,
+) -> usize {
+    let lower = score_index.saturating_sub(3).max(subject_end);
+    let mut start = score_index;
+    while start > lower
+        && matches!(
+            tokens[start - 1].text.as_str(),
+            "l" | "r"
+                | "left"
+                | "right"
+                | "ehl"
+                | "ankle"
+                | "dorsiflexion"
+                | "plantarflexion"
+                | "knee"
+                | "extension"
+                | "biceps"
+                | "wrist"
+        )
+    {
+        start -= 1;
+    }
+    if start == score_index {
+        score_index.saturating_sub(1).max(subject_end)
+    } else {
+        start
+    }
+}
+
 fn score_is_normal(token: &str) -> bool {
     let mut parts = token.split('/');
     let Some(left) = parts.next() else {
@@ -1074,21 +1683,92 @@ fn structured_exam_status_bridge_token(token: &str) -> bool {
         "and"
             | "or"
             | "plus"
+            | "r"
+            | "l"
+            | "right"
+            | "left"
             | "both"
             | "bilaterally"
+            | "biceps"
+            | "brachioradialis"
             | "coordination"
+            | "dp"
             | "gait"
+            | "hoffman"
+            | "hoffmann"
+            | "kernig"
+            | "brudzinski"
+            | "kj"
+            | "aj"
             | "power"
+            | "pt"
             | "reflex"
             | "reflexes"
             | "range"
             | "movement"
             | "tone"
             | "sensation"
+            | "slr"
+            | "straight"
+            | "leg"
+            | "raise"
+            | "raising"
+            | "s"
+            | "sign"
             | "non"
             | "tender"
             | "nontender"
+            | "test"
     )
+}
+
+fn muscle_weakness_context_token(token: &str) -> bool {
+    matches!(
+        token,
+        "abduction"
+            | "ankle"
+            | "apb"
+            | "biceps"
+            | "dorsiflexion"
+            | "ehl"
+            | "external"
+            | "face"
+            | "facial"
+            | "finger"
+            | "grip"
+            | "infraspinatus"
+            | "knee"
+            | "limb"
+            | "muscle"
+            | "plantarflexion"
+            | "power"
+            | "resisted"
+            | "rotation"
+            | "subscapularis"
+            | "supraspinatus"
+            | "thumb"
+            | "wrist"
+    )
+}
+
+fn preceding_negation_token(tokens: &[ExamToken], index: usize, max_gap: usize) -> bool {
+    let lower = index.saturating_sub(max_gap);
+    tokens[lower..index]
+        .iter()
+        .any(|token| exam_negation_token(token.text.as_str()))
+}
+
+fn looks_like_normal_crt_token(token: &str) -> bool {
+    matches!(token, "2" | "2s" | "3" | "3s")
+}
+
+fn breast_lump_boundary_between(text: &str, start: usize, end: usize) -> bool {
+    if start >= end || end > text.len() {
+        return false;
+    }
+    text[start..end]
+        .chars()
+        .any(|ch| matches!(ch, ':' | ';' | '.' | '\n' | '\r' | '\u{2013}' | '\u{2014}'))
 }
 
 fn anatomical_exam_modifier_token(token: &str) -> bool {
@@ -1168,6 +1848,71 @@ fn semantic_context_decision(
         }
     }
 
+    if matches!(extraction_kind, ExtractionKind::ExaminationFinding) {
+        if raw.concept_id == "277233008"
+            && is_bare_watery_discharge_match(&raw.normalized_match)
+            && !has_nasal_context(raw.field, field_text, raw.span_start, raw.span_end)
+        {
+            return Some(crate::context::AssertionDecision {
+                accepted: false,
+                assertion: AssertionStatus::Ambiguous,
+                rule_ids: vec!["CTX_EXAM_RHINORRHEA_WITHOUT_NASAL_CONTEXT".to_string()],
+                explanation: "Suppressed: watery discharge wording is not specific to anterior rhinorrhea without nasal context."
+                    .to_string(),
+            });
+        }
+
+        if raw.concept_id == "15188001"
+            && raw.normalized_match == "hearing"
+            && has_normal_exam_status_after(raw.field, field_text, raw.span_end)
+        {
+            return Some(crate::context::AssertionDecision {
+                accepted: false,
+                assertion: AssertionStatus::Ambiguous,
+                rule_ids: vec!["CTX_EXAM_HEARING_NORMAL_NOT_HEARING_LOSS".to_string()],
+                explanation:
+                    "Suppressed: hearing is documented as normal rather than hearing loss."
+                        .to_string(),
+            });
+        }
+
+        if raw.concept_id == "397974008" && raw.normalized_match == "sensation" {
+            return Some(crate::context::AssertionDecision {
+                accepted: false,
+                assertion: AssertionStatus::Ambiguous,
+                rule_ids: vec!["CTX_EXAM_BARE_SENSATION_NOT_HYPOESTHESIA".to_string()],
+                explanation:
+                    "Suppressed: bare sensation requires reduced, impaired, or absent status to represent hypoaesthesia."
+                        .to_string(),
+            });
+        }
+
+        if raw.concept_id == "13791008"
+            && raw.normalized_match == "weakness"
+            && has_muscle_weakness_context(raw.field, field_text, raw.span_start, raw.span_end)
+        {
+            return Some(crate::context::AssertionDecision {
+                accepted: false,
+                assertion: AssertionStatus::Ambiguous,
+                rule_ids: vec!["CTX_EXAM_LOCAL_WEAKNESS_NOT_ASTHENIA".to_string()],
+                explanation:
+                    "Suppressed: local examination weakness is muscle weakness, not general asthenia."
+                        .to_string(),
+            });
+        }
+
+        if post_status_sensitive_exam_concept(&raw.concept_id) {
+            if let Some(assertion) = exam_status_after(raw.field, field_text, raw.span_end) {
+                return Some(crate::context::AssertionDecision {
+                    accepted: assertion == AssertionStatus::Affirmed,
+                    assertion,
+                    rule_ids: vec![structured_exam_rule_id(assertion).to_string()],
+                    explanation: structured_exam_explanation(raw.field, assertion),
+                });
+            }
+        }
+    }
+
     if raw.concept_id == "75088002"
         && raw.normalized_match == "urgency"
         && !has_urinary_context(raw.field, field_text, raw.span_start, raw.span_end)
@@ -1222,6 +1967,16 @@ fn observable_context_decision(
         return Some(observable_ambiguous_decision(
             "CTX_OBSERVABLE_RESP_RATE_SIDE_LABEL",
             "Suppressed: single-letter R is acting as a right-side label for an examination score, not respiratory rate.",
+        ));
+    }
+
+    if is_most_comfortable_listening_level_acronym(raw)
+        && raw.value.is_none()
+        && has_musculoskeletal_ligament_context(raw, field_text)
+    {
+        return Some(observable_ambiguous_decision(
+            "CTX_OBSERVABLE_AUDIOLOGY_ACRONYM_IN_LIGAMENT_CONTEXT",
+            "Suppressed: MCL appears in musculoskeletal ligament examination context, not as most comfortable listening level.",
         ));
     }
 
@@ -1281,6 +2036,53 @@ fn looks_like_laterality_score_value(raw: &RawMatch) -> bool {
             .as_deref()
             .map(|unit| matches!(unit, "L" | "R" | "l" | "r"))
             .unwrap_or(false)
+}
+
+fn is_most_comfortable_listening_level_acronym(raw: &RawMatch) -> bool {
+    normalize_term(&raw.preferred_term) == "most comfortable listening level"
+        && raw.normalized_match == "mcl"
+}
+
+fn has_musculoskeletal_ligament_context(raw: &RawMatch, field_text: &str) -> bool {
+    let (window_start, window_end) = context_window(field_text, raw.span_start, raw.span_end, 120);
+    let normalized = normalize_clinical_text(&field_text[window_start..window_end], raw.field).text;
+    let tokens = normalized
+        .split(' ')
+        .filter(|token| !token.is_empty())
+        .collect::<Vec<_>>();
+
+    let anatomical_context = tokens.iter().any(|token| {
+        matches!(
+            *token,
+            "knee"
+                | "joint"
+                | "ligament"
+                | "ligaments"
+                | "medial"
+                | "lateral"
+                | "collateral"
+                | "valgus"
+                | "varus"
+        )
+    });
+    let exam_context = tokens.iter().any(|token| {
+        matches!(
+            *token,
+            "tender"
+                | "tenderness"
+                | "pain"
+                | "painful"
+                | "stress"
+                | "stable"
+                | "lax"
+                | "laxity"
+                | "effusion"
+                | "swelling"
+                | "line"
+        )
+    });
+
+    anatomical_context && exam_context
 }
 
 fn has_qualitative_neurovascular_context(raw: &RawMatch, field_text: &str) -> bool {
@@ -1373,6 +2175,89 @@ fn is_bare_smell_descriptor(normalized_match: &str) -> bool {
         normalized_match,
         "strong smelling" | "foul smelling" | "offensive smelling" | "smelly"
     )
+}
+
+fn is_bare_watery_discharge_match(normalized_match: &str) -> bool {
+    matches!(normalized_match, "watery discharge" | "watery")
+}
+
+fn has_nasal_context(field: SoapField, text: &str, span_start: usize, span_end: usize) -> bool {
+    let (window_start, window_end) = context_window(text, span_start, span_end, 120);
+    let normalized = normalize_clinical_text(&text[window_start..window_end], field).text;
+    let tokens = normalized
+        .split(' ')
+        .filter(|token| !token.is_empty())
+        .collect::<Vec<_>>();
+
+    tokens.iter().any(|token| {
+        matches!(
+            *token,
+            "nasal" | "nose" | "nostril" | "nostrils" | "rhinorrhea" | "rhinorrhoea"
+        )
+    })
+}
+
+fn has_normal_exam_status_after(field: SoapField, text: &str, span_end: usize) -> bool {
+    let (_, window_end) = context_window(text, span_end, span_end, 40);
+    let Some(after) = text.get(span_end..window_end) else {
+        return false;
+    };
+    let normalized = normalize_clinical_text(after, field).text;
+    normalized
+        .split(' ')
+        .take(4)
+        .any(|token| matches!(token, "normal" | "intact" | "present" | "grossly"))
+}
+
+fn post_status_sensitive_exam_concept(concept_id: &str) -> bool {
+    matches!(
+        concept_id,
+        "366448008"
+            | "82668000"
+            | "19411004"
+            | "299391009"
+            | "299393007"
+            | "366605006"
+            | "299849001"
+            | "39051003"
+            | "82345001"
+            | "67672003"
+    )
+}
+
+fn exam_status_after(field: SoapField, text: &str, span_end: usize) -> Option<AssertionStatus> {
+    let (_, window_end) = context_window(text, span_end, span_end, 48);
+    let after = text.get(span_end..window_end)?;
+    let before_boundary = after
+        .find(['.', ';', '\n', '\r'])
+        .map(|idx| &after[..idx])
+        .unwrap_or(after);
+    let normalized = normalize_clinical_text(before_boundary, field).text;
+
+    normalized
+        .split(' ')
+        .filter(|token| !token.is_empty())
+        .take(6)
+        .find_map(|token| match token {
+            "positive" | "pos" => Some(AssertionStatus::Affirmed),
+            "negative" | "neg" => Some(AssertionStatus::Negated),
+            "normal" | "stable" | "intact" => Some(AssertionStatus::Normal),
+            _ => None,
+        })
+}
+
+fn has_muscle_weakness_context(
+    field: SoapField,
+    text: &str,
+    span_start: usize,
+    span_end: usize,
+) -> bool {
+    let (window_start, window_end) = context_window(text, span_start, span_end, 80);
+    let normalized = normalize_clinical_text(&text[window_start..window_end], field).text;
+    normalized
+        .split(' ')
+        .filter(|token| !token.is_empty())
+        .any(muscle_weakness_context_token)
 }
 
 fn has_urinary_context(field: SoapField, text: &str, span_start: usize, span_end: usize) -> bool {
