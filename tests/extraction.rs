@@ -137,6 +137,41 @@ fn reports_terms_dropped_by_the_ambiguity_guard() {
         .any(|term| term.term == "shared term" && term.competing_concept_count == 2));
 }
 
+#[test]
+fn suppresses_family_history_after_morphological_plural_matching() {
+    let extractor = Extractor::new(TerminologyArtefact {
+        schema_version: 1,
+        terminology_version: "test".to_string(),
+        source_release: "test".to_string(),
+        refset_id: "fixture-symptoms".to_string(),
+        generated_at_utc: "test".to_string(),
+        artefact_hash: "UNVERIFIED".to_string(),
+        concepts: vec![concept(
+            "1000000099",
+            "Target condition",
+            &["target condition"],
+        )],
+    })
+    .unwrap();
+
+    let response = extractor
+        .extract(ExtractRequest {
+            history: "Mum had target conditions.".to_string(),
+            include_suppressed: true,
+            ..ExtractRequest::default()
+        })
+        .unwrap();
+
+    assert!(response.matches.is_empty());
+    assert_eq!(response.suppressed.len(), 1);
+    assert_eq!(response.suppressed[0].concept_id, "1000000099");
+    assert_eq!(response.suppressed[0].matched_text, "target conditions");
+    assert_eq!(
+        response.suppressed[0].assertion,
+        AssertionStatus::FamilyHistory
+    );
+}
+
 fn concept(
     concept_id: &str,
     preferred_term: &str,

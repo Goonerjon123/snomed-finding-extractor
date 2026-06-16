@@ -235,6 +235,7 @@ const TIGHT_GAP_ALLOW: &[&str] = &[
     "severe",
     "mild",
     "moderate",
+    "morning",
     "recent",
     "recurrent",
     "persistent",
@@ -955,12 +956,13 @@ mod tests {
 
     #[test]
     fn negation_scopes_across_descriptors_and_pertinent_qualifiers() {
-        for text in [
-            "No evidence of chest pain",
-            "Denies any chest pain",
-            "No new chest pain since",
+        for (text, target) in [
+            ("No evidence of chest pain", "chest pain"),
+            ("Denies any chest pain", "chest pain"),
+            ("No new chest pain since", "chest pain"),
+            ("No morning headache", "headache"),
         ] {
-            let decision = classify(SoapField::History, text, "chest pain");
+            let decision = classify(SoapField::History, text, target);
             assert!(!decision.accepted, "expected suppression for {text}");
             assert_eq!(decision.assertion, AssertionStatus::Negated);
         }

@@ -62,6 +62,15 @@ struct FlexiblePatternMeta {
     kind: FlexiblePatternKind,
 }
 
+#[derive(Debug, Clone)]
+struct MorphPatternMeta {
+    concept_id: String,
+    preferred_term: String,
+    pattern: String,
+    source: String,
+    tokens: Vec<String>,
+}
+
 #[derive(Debug, Clone, Copy)]
 enum FlexiblePatternKind {
     BodySite,
@@ -81,6 +90,8 @@ struct NormalizedToken<'a> {
 pub struct TerminologyMatcher {
     automaton: AhoCorasick,
     patterns: Vec<PatternMeta>,
+    morph_patterns: Vec<MorphPatternMeta>,
+    morph_by_first_key: HashMap<String, Vec<usize>>,
     flexible_patterns: Vec<FlexiblePatternMeta>,
     flexible_by_first_token: HashMap<String, Vec<usize>>,
     dropped_ambiguous: Vec<DroppedTerm>,
@@ -96,6 +107,7 @@ impl TerminologyMatcher {
         let mut concepts_by_term: HashMap<String, HashSet<String>> = HashMap::new();
         let mut numeric_concepts_by_term: HashMap<String, HashSet<String>> = HashMap::new();
         let mut exact_preferred_concepts_by_term: HashMap<String, HashSet<String>> = HashMap::new();
+        let mut official_concepts_by_term: HashMap<String, HashSet<String>> = HashMap::new();
         let mut seen = HashSet::new();
 
         for concept in artefact.concepts.iter().filter(|concept| concept.active) {
@@ -121,6 +133,12 @@ impl TerminologyMatcher {
                         .or_default()
                         .insert(concept.concept_id.clone());
                 }
+                if is_official_term_source(&variant.source) {
+                    official_concepts_by_term
+                        .entry(normalized.clone())
+                        .or_default()
+                        .insert(concept.concept_id.clone());
+                }
                 if variant.requires_numeric_value {
                     numeric_concepts_by_term
                         .entry(normalized.clone())
@@ -139,6 +157,7 @@ impl TerminologyMatcher {
 
         let mut flexible_patterns = Vec::new();
         let mut flexible_by_first_token: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut accepted_candidates = Vec::new();
         let mut dropped_ambiguous = Vec::new();
         let mut dropped_seen = HashSet::new();
         for candidate in candidates {
@@ -155,7 +174,11 @@ impl TerminologyMatcher {
                 .get(&candidate.pattern)
                 .map(|concepts| concepts.len() == 1 && concepts.contains(&candidate.concept_id))
                 .unwrap_or(false);
-            if is_ambiguous && !has_unique_exact_preferred {
+            let has_unique_official_term = official_concepts_by_term
+                .get(&candidate.pattern)
+                .map(|concepts| concepts.len() == 1 && concepts.contains(&candidate.concept_id))
+                .unwrap_or(false);
+            if is_ambiguous && !has_unique_exact_preferred && !has_unique_official_term {
                 if dropped_seen.insert((candidate.concept_id.clone(), candidate.pattern.clone())) {
                     dropped_ambiguous.push(DroppedTerm {
                         term: candidate.pattern.clone(),
@@ -173,6 +196,27 @@ impl TerminologyMatcher {
                 continue;
             }
 
+            accepted_candidates.push(candidate);
+        }
+
+        let mut morph_concepts_by_signature: HashMap<String, HashSet<String>> = HashMap::new();
+        for candidate in accepted_candidates
+            .iter()
+            .filter(|candidate| !candidate.requires_numeric_value)
+        {
+            if let Some(signature) = morph_signature(&candidate.pattern) {
+                morph_concepts_by_signature
+                    .entry(signature)
+                    .or_default()
+                    .insert(candidate.concept_id.clone());
+            }
+        }
+
+        let mut morph_patterns = Vec::new();
+        let mut morph_by_first_key: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut morph_seen = HashSet::new();
+
+        for candidate in accepted_candidates {
             pattern_strings.push(candidate.pattern.clone());
             patterns.push(PatternMeta {
                 concept_id: candidate.concept_id.clone(),
@@ -183,6 +227,27 @@ impl TerminologyMatcher {
             });
 
             if !candidate.requires_numeric_value {
+                if let Some(tokens) = morph_pattern_tokens(&candidate.pattern) {
+                    let signature = tokens
+                        .iter()
+                        .map(|token| morphology_signature_token(token))
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    let is_morph_ambiguous = morph_concepts_by_signature
+                        .get(&signature)
+                        .map(|concepts| concepts.len() > 1)
+                        .unwrap_or(false);
+                    if !is_morph_ambiguous
+                        && morph_seen.insert((candidate.concept_id.clone(), signature))
+                    {
+                        push_morph_pattern(
+                            &mut morph_patterns,
+                            &mut morph_by_first_key,
+                            &candidate,
+                            tokens,
+                        );
+                    }
+                }
                 if let Some(tokens) = flexible_body_site_pattern_tokens(&candidate.pattern) {
                     push_flexible_pattern(
                         &mut flexible_patterns,
@@ -224,6 +289,8 @@ impl TerminologyMatcher {
         Ok(Self {
             automaton,
             patterns,
+            morph_patterns,
+            morph_by_first_key,
             flexible_patterns,
             flexible_by_first_token,
             dropped_ambiguous,
@@ -260,6 +327,9 @@ impl TerminologyMatcher {
             else {
                 continue;
             };
+            if has_hard_boundary_between(text, span_start, span_end) {
+                continue;
+            }
 
             let meta = &self.patterns[found.pattern().as_usize()];
             // Short numeric labels (T, P, ...) only match when a value follows;
@@ -293,6 +363,8 @@ impl TerminologyMatcher {
             });
         }
 
+        self.add_morphological_matches(&tokens, &normalized, text, field, &mut seen, &mut matches);
+
         for (token_index, token) in tokens.iter().enumerate() {
             for key in [token.text.to_string(), singular_token(token.text)] {
                 let Some(pattern_indices) = self.flexible_by_first_token.get(&key) else {
@@ -303,7 +375,7 @@ impl TerminologyMatcher {
                     let meta = &self.flexible_patterns[*pattern_index];
                     let matched_range = match meta.kind {
                         FlexiblePatternKind::BodySite => {
-                            find_flexible_body_site_match(&tokens, token_index, &meta.tokens)
+                            find_flexible_body_site_match(text, &tokens, token_index, &meta.tokens)
                         }
                         FlexiblePatternKind::CoordinatedSharedHead => {
                             find_coordinated_shared_head_match(
@@ -320,6 +392,9 @@ impl TerminologyMatcher {
                     let Some((span_start, span_end)) = normalized.original_range(start, end) else {
                         continue;
                     };
+                    if has_hard_boundary_between(text, span_start, span_end) {
+                        continue;
+                    }
                     if !acronym_match_casing_is_safe(&meta.source, &text[span_start..span_end]) {
                         continue;
                     }
@@ -344,7 +419,116 @@ impl TerminologyMatcher {
             }
         }
 
+        remove_subsumed_overlapping_matches(&mut matches);
+
         matches
+    }
+
+    fn add_morphological_matches(
+        &self,
+        tokens: &[NormalizedToken<'_>],
+        normalized: &NormalizedText,
+        text: &str,
+        field: SoapField,
+        seen: &mut HashSet<(String, usize, usize)>,
+        matches: &mut Vec<RawMatch>,
+    ) {
+        let mut candidates = Vec::new();
+        let mut candidate_seen = HashSet::new();
+
+        for (token_index, token) in tokens.iter().enumerate() {
+            for key in morphology_lookup_keys(token.text) {
+                let Some(pattern_indices) = self.morph_by_first_key.get(&key) else {
+                    continue;
+                };
+
+                for pattern_index in pattern_indices {
+                    if !candidate_seen.insert((*pattern_index, token_index)) {
+                        continue;
+                    }
+
+                    let meta = &self.morph_patterns[*pattern_index];
+                    if token_index + meta.tokens.len() > tokens.len() {
+                        continue;
+                    }
+
+                    let text_tokens = &tokens[token_index..token_index + meta.tokens.len()];
+                    let mut changed = false;
+                    let matched = meta.tokens.iter().zip(text_tokens.iter()).all(
+                        |(pattern_token, text_token)| {
+                            let token_matched = token_matches(pattern_token, text_token.text);
+                            changed |= token_matched && pattern_token != text_token.text;
+                            token_matched
+                        },
+                    );
+                    if !matched || !changed {
+                        continue;
+                    }
+
+                    let start = text_tokens[0].start;
+                    let end = text_tokens[text_tokens.len() - 1].end;
+                    let Some((span_start, span_end)) = normalized.original_range(start, end) else {
+                        continue;
+                    };
+                    if has_hard_boundary_between(text, span_start, span_end) {
+                        continue;
+                    }
+                    if !acronym_match_casing_is_safe(&meta.source, &text[span_start..span_end]) {
+                        continue;
+                    }
+
+                    candidates.push(RawMatch {
+                        concept_id: meta.concept_id.clone(),
+                        preferred_term: meta.preferred_term.clone(),
+                        field,
+                        span_start,
+                        span_end,
+                        matched_text: text[span_start..span_end].to_string(),
+                        normalized_match: meta.pattern.clone(),
+                        pattern_source: format!("{}:morphology", meta.source),
+                        value: None,
+                    });
+                }
+            }
+        }
+
+        candidates.sort_by(|a, b| {
+            a.span_start
+                .cmp(&b.span_start)
+                .then_with(|| (b.span_end - b.span_start).cmp(&(a.span_end - a.span_start)))
+                .then_with(|| a.concept_id.cmp(&b.concept_id))
+        });
+
+        let mut occupied = Vec::<(usize, usize)>::new();
+        for candidate in candidates {
+            let candidate_len = candidate.span_end - candidate.span_start;
+            if occupied
+                .iter()
+                .any(|span| spans_overlap(*span, (candidate.span_start, candidate.span_end)))
+            {
+                continue;
+            }
+            if matches.iter().any(|existing| {
+                spans_overlap(
+                    (existing.span_start, existing.span_end),
+                    (candidate.span_start, candidate.span_end),
+                ) && existing.span_end - existing.span_start >= candidate_len
+            }) {
+                continue;
+            }
+
+            let key = (
+                candidate.concept_id.as_str(),
+                candidate.span_start,
+                candidate.span_end,
+            );
+            if !seen.insert((key.0.to_string(), key.1, key.2)) {
+                continue;
+            }
+
+            occupied.push((candidate.span_start, candidate.span_end));
+            matches.push(candidate);
+        }
     }
 }
 
@@ -365,6 +549,17 @@ fn acronym_match_casing_is_safe(source: &str, matched_text: &str) -> bool {
     }
 
     letters.len() >= 2 && letters.iter().all(|ch| ch.is_ascii_uppercase())
+}
+
+fn is_official_term_source(source: &str) -> bool {
+    matches!(
+        source,
+        "preferred_term"
+            | "openehr-display"
+            | "openehr-description-preferred"
+            | "openehr-description-synonym"
+            | "openehr-description-expansion"
+    )
 }
 
 /// Filler words tolerated between a numeric label and its value, so
@@ -498,6 +693,131 @@ fn capture_unit_after(text: &str, value_end: usize) -> (Option<String>, usize) {
     }
 }
 
+fn push_morph_pattern(
+    morph_patterns: &mut Vec<MorphPatternMeta>,
+    morph_by_first_key: &mut HashMap<String, Vec<usize>>,
+    candidate: &PatternCandidate,
+    tokens: Vec<String>,
+) {
+    let morph_index = morph_patterns.len();
+    for key in morphology_lookup_keys(&tokens[0]) {
+        morph_by_first_key.entry(key).or_default().push(morph_index);
+    }
+    morph_patterns.push(MorphPatternMeta {
+        concept_id: candidate.concept_id.clone(),
+        preferred_term: candidate.preferred_term.clone(),
+        pattern: candidate.pattern.clone(),
+        source: candidate.source.clone(),
+        tokens,
+    });
+}
+
+fn morph_pattern_tokens(pattern: &str) -> Option<Vec<String>> {
+    let tokens = pattern
+        .split(' ')
+        .filter(|token| !token.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if tokens.is_empty() || tokens.len() > 8 {
+        return None;
+    }
+    if tokens
+        .iter()
+        .any(|token| token.chars().any(|ch| ch.is_ascii_digit()))
+    {
+        return None;
+    }
+
+    Some(tokens)
+}
+
+fn morph_signature(pattern: &str) -> Option<String> {
+    Some(
+        morph_pattern_tokens(pattern)?
+            .iter()
+            .map(|token| morphology_signature_token(token))
+            .collect::<Vec<_>>()
+            .join(" "),
+    )
+}
+
+fn morphology_signature_token(token: &str) -> String {
+    inflection_root(token).unwrap_or_else(|| singular_token(token))
+}
+
+fn morphology_lookup_keys(token: &str) -> Vec<String> {
+    let mut keys = Vec::new();
+    push_unique_key(&mut keys, token.to_string());
+    push_unique_key(&mut keys, singular_token(token));
+    if let Some(root) = inflection_root(token) {
+        push_unique_key(&mut keys, root);
+    }
+    keys
+}
+
+fn push_unique_key(keys: &mut Vec<String>, key: String) {
+    if !key.is_empty() && !keys.iter().any(|existing| existing == &key) {
+        keys.push(key);
+    }
+}
+
+fn spans_overlap(left: (usize, usize), right: (usize, usize)) -> bool {
+    left.0 < right.1 && right.0 < left.1
+}
+
+fn remove_subsumed_overlapping_matches(matches: &mut Vec<RawMatch>) {
+    let remove = (0..matches.len())
+        .filter(|&index| {
+            matches.iter().enumerate().any(|(other_index, other)| {
+                index != other_index
+                    && other.span_end - other.span_start
+                        >= matches[index].span_end - matches[index].span_start
+                    && spans_overlap(
+                        (matches[index].span_start, matches[index].span_end),
+                        (other.span_start, other.span_end),
+                    )
+                    && qualified_term_subsumes(
+                        &other.normalized_match,
+                        &matches[index].normalized_match,
+                    )
+            })
+        })
+        .collect::<HashSet<_>>();
+
+    if remove.is_empty() {
+        return;
+    }
+
+    let mut index = 0_usize;
+    matches.retain(|_| {
+        let keep = !remove.contains(&index);
+        index += 1;
+        keep
+    });
+}
+
+fn qualified_term_subsumes(longer: &str, shorter: &str) -> bool {
+    if longer == shorter {
+        return false;
+    }
+    let longer_tokens = longer.split(' ').collect::<Vec<_>>();
+    let shorter_tokens = shorter.split(' ').collect::<Vec<_>>();
+    if shorter_tokens.is_empty() || shorter_tokens.len() >= longer_tokens.len() {
+        return false;
+    }
+
+    if longer_tokens.starts_with(&shorter_tokens) {
+        let next = longer_tokens[shorter_tokens.len()];
+        return !matches!(next, "and" | "or");
+    }
+    if longer_tokens.ends_with(&shorter_tokens) {
+        let previous = longer_tokens[longer_tokens.len() - shorter_tokens.len() - 1];
+        return !matches!(previous, "and" | "or");
+    }
+
+    false
+}
+
 fn push_flexible_pattern(
     flexible_patterns: &mut Vec<FlexiblePatternMeta>,
     flexible_by_first_token: &mut HashMap<String, Vec<usize>>,
@@ -629,6 +949,7 @@ fn normalized_tokens(normalized: &NormalizedText) -> Vec<NormalizedToken<'_>> {
 }
 
 fn find_flexible_body_site_match(
+    original_text: &str,
     tokens: &[NormalizedToken<'_>],
     start_index: usize,
     pattern_tokens: &[String],
@@ -658,6 +979,13 @@ fn find_flexible_body_site_match(
         }
 
         let found_index = found_index?;
+        if has_hard_boundary_between(
+            original_text,
+            tokens[end_index].original_end,
+            tokens[found_index].original_start,
+        ) {
+            return None;
+        }
         extra_tokens += found_index.saturating_sub(search_from);
         if extra_tokens > MAX_EXTRA_TOKENS {
             return None;
@@ -714,6 +1042,15 @@ fn find_coordinated_shared_head_match(
     None
 }
 
+fn has_hard_boundary_between(original_text: &str, start: usize, end: usize) -> bool {
+    if start >= end || end > original_text.len() {
+        return false;
+    }
+    original_text[start..end]
+        .chars()
+        .any(|ch| matches!(ch, '.' | '!' | '?' | ';' | '\n' | '\r'))
+}
+
 fn has_original_coordinator_between(original_text: &str, start: usize, end: usize) -> bool {
     if start >= end || end > original_text.len() {
         return false;
@@ -727,26 +1064,131 @@ fn has_original_coordinator_between(original_text: &str, start: usize, end: usiz
 }
 
 fn token_matches(pattern_token: &str, text_token: &str) -> bool {
-    pattern_token == text_token || singular_token(pattern_token) == singular_token(text_token)
+    if pattern_token == text_token {
+        return true;
+    }
+
+    let pattern_singular = singular_token(pattern_token);
+    let text_singular = singular_token(text_token);
+    if pattern_singular == text_singular
+        && (pattern_singular != pattern_token || text_singular != text_token)
+    {
+        return true;
+    }
+
+    // Verb morphology is intentionally directional: the clinician text must
+    // carry the inflectional evidence. This lets "vomited" match a terminology
+    // term "vomiting", but stops a plain base verb such as "hear" from matching
+    // a gerund noun/adjective such as "hearing".
+    let Some(text_root) = inflection_root(text_token) else {
+        return false;
+    };
+    if text_root == pattern_token || text_root == pattern_singular {
+        return true;
+    }
+    inflection_root(pattern_token)
+        .map(|pattern_root| pattern_root == text_root)
+        .unwrap_or(false)
 }
 
 fn singular_token(token: &str) -> String {
     if token.len() <= 3 {
         return token.to_string();
     }
+    if let Some(irregular) = irregular_singular(token) {
+        return irregular.to_string();
+    }
+    if token.ends_with("ss") || token.ends_with("us") || token.ends_with("is") {
+        return token.to_string();
+    }
     if let Some(stem) = token.strip_suffix("ies") {
         return format!("{stem}y");
     }
-    for suffix in ["ches", "shes", "xes", "ses"] {
-        if let Some(stem) = token.strip_suffix(suffix) {
-            return format!("{stem}{}", &suffix[..suffix.len() - 2]);
+    if let Some(stem) = token.strip_suffix("ves") {
+        return format!("{stem}f");
+    }
+    if token.ends_with("ches") && !token.ends_with("aches") {
+        return token.trim_end_matches("es").to_string();
+    }
+    for suffix in ["shes", "xes", "zes", "sses"] {
+        if token.ends_with(suffix) {
+            return token.trim_end_matches("es").to_string();
         }
+    }
+    if token.ends_with("ses") {
+        return token.trim_end_matches('s').to_string();
     }
     if let Some(stem) = token.strip_suffix('s') {
         return stem.to_string();
     }
 
     token.to_string()
+}
+
+fn irregular_singular(token: &str) -> Option<&'static str> {
+    match token {
+        "children" => Some("child"),
+        "feet" => Some("foot"),
+        "teeth" => Some("tooth"),
+        "men" => Some("man"),
+        "women" => Some("woman"),
+        "people" => Some("person"),
+        "criteria" => Some("criterion"),
+        "phenomena" => Some("phenomenon"),
+        "indices" => Some("index"),
+        "appendices" => Some("appendix"),
+        _ => None,
+    }
+}
+
+fn inflection_root(token: &str) -> Option<String> {
+    if token.len() <= 4 {
+        return None;
+    }
+
+    if let Some(stem) = token.strip_suffix("ied") {
+        if stem.len() >= 3 {
+            return Some(format!("{stem}y"));
+        }
+    }
+
+    if let Some(stem) = token.strip_suffix("ing") {
+        return normalize_inflection_stem(stem);
+    }
+
+    if let Some(stem) = token.strip_suffix("ed") {
+        return normalize_inflection_stem(stem);
+    }
+
+    None
+}
+
+fn normalize_inflection_stem(stem: &str) -> Option<String> {
+    if stem.len() < 4 {
+        return None;
+    }
+
+    let undoubled = undouble_final_consonant(stem);
+    Some(undoubled.to_string())
+}
+
+fn undouble_final_consonant(stem: &str) -> &str {
+    let mut chars = stem.char_indices().rev();
+    let Some((last_idx, last)) = chars.next() else {
+        return stem;
+    };
+    let Some((previous_idx, previous)) = chars.next() else {
+        return stem;
+    };
+    if last == previous && is_ascii_consonant(last) {
+        &stem[..last_idx.max(previous_idx + previous.len_utf8())]
+    } else {
+        stem
+    }
+}
+
+fn is_ascii_consonant(ch: char) -> bool {
+    ch.is_ascii_alphabetic() && !matches!(ch, 'a' | 'e' | 'i' | 'o' | 'u')
 }
 
 #[cfg(test)]
@@ -778,6 +1220,69 @@ mod tests {
         }
     }
 
+    fn artefact_with(concepts: Vec<ConceptEntry>) -> TerminologyArtefact {
+        TerminologyArtefact {
+            schema_version: 1,
+            terminology_version: "test".to_string(),
+            source_release: "test".to_string(),
+            refset_id: "test-refset".to_string(),
+            generated_at_utc: "test".to_string(),
+            concepts,
+            artefact_hash: String::new(),
+        }
+    }
+
+    fn concept(concept_id: &str, preferred_term: &str, variants: &[&str]) -> ConceptEntry {
+        concept_with_source(concept_id, preferred_term, variants, "fixture")
+    }
+
+    fn concept_with_source(
+        concept_id: &str,
+        preferred_term: &str,
+        variants: &[&str],
+        source: &str,
+    ) -> ConceptEntry {
+        ConceptEntry {
+            concept_id: concept_id.to_string(),
+            active: true,
+            preferred_term: preferred_term.to_string(),
+            descriptions: vec![],
+            variants: variants
+                .iter()
+                .map(|text| TermVariant {
+                    text: text.to_string(),
+                    source: source.to_string(),
+                    description_id: None,
+                    allow_ambiguous: false,
+                    requires_numeric_value: false,
+                })
+                .collect(),
+        }
+    }
+
+    fn raw_match(concept_id: &str, normalized_match: &str) -> RawMatch {
+        raw_match_with_span(concept_id, normalized_match, 10, 15)
+    }
+
+    fn raw_match_with_span(
+        concept_id: &str,
+        normalized_match: &str,
+        span_start: usize,
+        span_end: usize,
+    ) -> RawMatch {
+        RawMatch {
+            concept_id: concept_id.to_string(),
+            preferred_term: format!("Concept {concept_id}"),
+            field: SoapField::History,
+            span_start,
+            span_end,
+            matched_text: "SOBOE".to_string(),
+            normalized_match: normalized_match.to_string(),
+            pattern_source: "fixture".to_string(),
+            value: None,
+        }
+    }
+
     #[test]
     fn finds_longest_normalized_span() {
         let matcher = TerminologyMatcher::new(&artefact()).unwrap();
@@ -785,6 +1290,34 @@ mod tests {
 
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].matched_text, "CHEST-pain");
+    }
+
+    #[test]
+    fn does_not_match_phrases_across_sentence_boundaries() {
+        let matcher = TerminologyMatcher::new(&artefact_with(vec![concept(
+            "1000000110",
+            "Alpha beta",
+            &["alpha beta"],
+        )]))
+        .unwrap();
+
+        let matches = matcher.find_in_field(SoapField::History, "alpha. beta", false);
+
+        assert!(matches.is_empty());
+    }
+
+    #[test]
+    fn flexible_matches_do_not_cross_sentence_boundaries() {
+        let matcher = TerminologyMatcher::new(&artefact_with(vec![concept(
+            "1000000111",
+            "Alpha of beta gamma",
+            &["alpha of beta gamma"],
+        )]))
+        .unwrap();
+
+        let matches = matcher.find_in_field(SoapField::History, "alpha of beta. gamma", false);
+
+        assert!(matches.is_empty());
     }
 
     #[test]
@@ -828,6 +1361,149 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn matches_regular_plural_mentions_without_term_specific_aliases() {
+        let matcher = TerminologyMatcher::new(&artefact_with(vec![concept(
+            "1000000100",
+            "Target symptom",
+            &["target symptom"],
+        )]))
+        .unwrap();
+
+        let matches = matcher.find_in_field(SoapField::History, "recurrent target symptoms", false);
+
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].concept_id, "1000000100");
+        assert_eq!(matches[0].matched_text, "target symptoms");
+        assert!(matches[0].pattern_source.ends_with(":morphology"));
+    }
+
+    #[test]
+    fn matches_past_tense_mentions_against_gerund_terms() {
+        let matcher = TerminologyMatcher::new(&artefact_with(vec![concept(
+            "1000000101",
+            "Targeting",
+            &["targeting"],
+        )]))
+        .unwrap();
+
+        let matches = matcher.find_in_field(SoapField::History, "targeted twice today", false);
+
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].concept_id, "1000000101");
+        assert_eq!(matches[0].matched_text, "targeted");
+    }
+
+    #[test]
+    fn does_not_match_plain_base_verbs_to_gerund_terms() {
+        let matcher = TerminologyMatcher::new(&artefact_with(vec![concept(
+            "1000000102",
+            "Hearing",
+            &["hearing"],
+        )]))
+        .unwrap();
+
+        let matches = matcher.find_in_field(SoapField::History, "can hear clearly", false);
+
+        assert!(matches.is_empty());
+    }
+
+    #[test]
+    fn prefers_longest_morphological_phrase() {
+        let matcher = TerminologyMatcher::new(&artefact_with(vec![
+            concept("1000000103", "Target symptom", &["target symptom"]),
+            concept(
+                "1000000104",
+                "Severe target symptom",
+                &["severe target symptom"],
+            ),
+        ]))
+        .unwrap();
+
+        let matches =
+            matcher.find_in_field(SoapField::History, "severe target symptoms today", false);
+
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].concept_id, "1000000104");
+        assert_eq!(matches[0].matched_text, "severe target symptoms");
+    }
+
+    #[test]
+    fn blocks_morphological_forms_that_collapse_to_multiple_concepts() {
+        let matcher = TerminologyMatcher::new(&artefact_with(vec![
+            concept("1000000105", "Target", &["target"]),
+            concept("1000000106", "Targeting", &["targeting"]),
+        ]))
+        .unwrap();
+
+        let matches = matcher.find_in_field(SoapField::History, "targeted today", false);
+
+        assert!(matches.is_empty());
+    }
+
+    #[test]
+    fn official_term_source_beats_ambiguous_derived_variant() {
+        let matcher = TerminologyMatcher::new(&artefact_with(vec![
+            concept_with_source(
+                "1000000107",
+                "First concept",
+                &["shared term"],
+                "openehr-description-synonym",
+            ),
+            concept_with_source(
+                "1000000108",
+                "Second concept",
+                &["shared term"],
+                "openehr-description-clinical-phrase-variant",
+            ),
+        ]))
+        .unwrap();
+
+        let matches = matcher.find_in_field(SoapField::History, "shared term", false);
+
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].concept_id, "1000000107");
+    }
+
+    #[test]
+    fn removes_same_span_less_specific_qualified_matches() {
+        let mut matches = vec![
+            raw_match("100", "shortness of breath"),
+            raw_match("101", "shortness of breath on exertion"),
+        ];
+
+        remove_subsumed_overlapping_matches(&mut matches);
+
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].concept_id, "101");
+    }
+
+    #[test]
+    fn removes_nested_less_specific_qualified_matches() {
+        let mut matches = vec![
+            raw_match_with_span("100", "painful", 10, 17),
+            raw_match_with_span("101", "painful arc", 10, 21),
+        ];
+
+        remove_subsumed_overlapping_matches(&mut matches);
+
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].concept_id, "101");
+    }
+
+    #[test]
+    fn keeps_same_span_coordinated_components() {
+        let mut matches = vec![
+            raw_match("100", "nausea"),
+            raw_match("101", "vomiting"),
+            raw_match("102", "nausea and vomiting"),
+        ];
+
+        remove_subsumed_overlapping_matches(&mut matches);
+
+        assert_eq!(matches.len(), 3);
     }
 
     #[test]

@@ -508,6 +508,14 @@ fn derive_description_variants(term: &str) -> Vec<DerivedVariant> {
         });
     }
 
+    for phrase_variant in clinical_phrase_variants(term) {
+        variants.push(DerivedVariant {
+            term: phrase_variant,
+            source: "openehr-description-clinical-phrase-variant",
+            allow_ambiguous: false,
+        });
+    }
+
     for context_trimmed in context_suffix_trim_variants(term) {
         variants.push(DerivedVariant {
             term: context_trimmed,
@@ -764,8 +772,139 @@ fn morphology_variants(term: &str) -> Vec<String> {
             return vec![format!("swollen {body_site}")];
         }
     }
+    for suffix in [" edema", " oedema"] {
+        if let Some(body_site) = normalized.strip_suffix(suffix) {
+            let body_site = body_site.trim();
+            if safe_short_body_site_phrase(body_site) {
+                return vec![
+                    format!("{body_site} swelling"),
+                    format!("swollen {body_site}"),
+                ];
+            }
+        }
+    }
+
+    let normalized = normalized
+        .strip_suffix(" symptom")
+        .map(str::trim)
+        .unwrap_or(normalized.as_str());
+    if let Some(body_site) = normalized.strip_prefix("stiff ") {
+        let body_site = body_site.trim();
+        if safe_short_body_site_phrase(body_site) {
+            return vec![format!("{body_site} stiffness")];
+        }
+    }
+    if let Some(body_site) = normalized.strip_suffix(" stiffness") {
+        let body_site = body_site.trim();
+        if safe_short_body_site_phrase(body_site) {
+            return vec![format!("stiff {body_site}")];
+        }
+    }
 
     Vec::new()
+}
+
+fn clinical_phrase_variants(term: &str) -> Vec<String> {
+    let mut variants = Vec::new();
+    if let Some((_, suffix)) = term.split_once(" - ") {
+        let suffix = normalize_term(suffix);
+        if is_safe_context_trimmed_phrase(&suffix) {
+            variants.push(suffix);
+        }
+    }
+
+    let normalized = normalize_term(term);
+    let normalized = normalized
+        .strip_prefix("finding of ")
+        .or_else(|| normalized.strip_prefix("observation of "))
+        .unwrap_or(normalized.as_str());
+
+    if let Some(function) = normalized.strip_prefix("impaired ") {
+        let function = function.trim();
+        if safe_short_body_site_phrase(function) {
+            variants.push(format!("reduced {function}"));
+        }
+    }
+    if let Some(function) = normalized.strip_suffix(" impairment") {
+        let function = function.trim();
+        if safe_short_body_site_phrase(function) {
+            variants.push(format!("reduced {function}"));
+        }
+    }
+    if normalized == "depressed mood" {
+        variants.push("low mood".to_string());
+    }
+    if let Some(base) = normalized.strip_suffix(" symptom") {
+        let base = base.trim();
+        if is_safe_clinical_phrase_variant(base) {
+            variants.push(base.to_string());
+        }
+    }
+    if let Some(base) = normalized.strip_suffix(" not associated with childbirth") {
+        let base = base.trim();
+        if is_safe_clinical_phrase_variant(base) {
+            variants.push(base.to_string());
+        }
+    }
+    if normalized == "period pain" {
+        variants.push("painful periods".to_string());
+    }
+    if matches!(
+        normalized,
+        "urgency urination"
+            | "urgency of micturition"
+            | "urgency to micturate"
+            | "urgency to pass urine"
+            | "urinary precipitancy"
+            | "urgent desire to urinate"
+    ) {
+        variants.push("urgency".to_string());
+    }
+    if let Some(body_site) = normalized
+        .strip_prefix("discharge from ")
+        .or_else(|| normalized.strip_prefix("discharge of "))
+    {
+        let body_site = body_site.trim();
+        if safe_short_body_site_phrase(body_site) {
+            variants.push(format!("{body_site} discharge"));
+        }
+    }
+
+    match normalized {
+        "frequency of urination" | "frequency of micturition" => {
+            variants.push("urinary frequency".to_string());
+        }
+        _ => {}
+    }
+
+    variants
+}
+
+fn safe_short_body_site_phrase(value: &str) -> bool {
+    let words = value
+        .split(' ')
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>();
+    !words.is_empty()
+        && words.len() <= 4
+        && words
+            .iter()
+            .all(|word| word.chars().all(|ch| ch.is_ascii_alphabetic()))
+}
+
+fn is_safe_clinical_phrase_variant(value: &str) -> bool {
+    let words = value
+        .split(' ')
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>();
+    let alnum_count = value.chars().filter(|ch| ch.is_alphanumeric()).count();
+
+    !words.is_empty()
+        && words.len() <= 5
+        && alnum_count >= 6
+        && words
+            .iter()
+            .all(|word| word.chars().all(|ch| ch.is_ascii_alphabetic()))
 }
 
 fn context_suffix_trim_variants(term: &str) -> Vec<String> {
@@ -936,6 +1075,118 @@ mod tests {
             .any(|variant| variant.term == "swollen left tonsil"
                 && variant.source == "openehr-description-morphology-variant"
                 && !variant.allow_ambiguous));
+    }
+
+    #[test]
+    fn derives_stiffness_variants_from_stiff_body_site_terms() {
+        let derived = derive_description_variants("Stiff neck symptom");
+
+        assert!(derived
+            .iter()
+            .any(|variant| variant.term == "neck stiffness"
+                && variant.source == "openehr-description-morphology-variant"
+                && !variant.allow_ambiguous));
+    }
+
+    #[test]
+    fn derives_swelling_variants_from_edema_terms() {
+        let derived = derive_description_variants("Ankle edema");
+
+        assert!(derived
+            .iter()
+            .any(|variant| variant.term == "ankle swelling"
+                && variant.source == "openehr-description-morphology-variant"
+                && !variant.allow_ambiguous));
+        assert!(derived.iter().any(|variant| variant.term == "swollen ankle"
+            && variant.source == "openehr-description-morphology-variant"
+            && !variant.allow_ambiguous));
+    }
+
+    #[test]
+    fn derives_common_clinical_phrase_variants_from_official_descriptions() {
+        let derived = derive_description_variants("Frequency of urination");
+
+        assert!(derived
+            .iter()
+            .any(|variant| variant.term == "urinary frequency"
+                && variant.source == "openehr-description-clinical-phrase-variant"
+                && !variant.allow_ambiguous));
+    }
+
+    #[test]
+    fn derives_safe_hyphen_suffix_phrases() {
+        let derived = derive_description_variants("Shoulder joint - painful arc");
+
+        assert!(derived.iter().any(|variant| variant.term == "painful arc"
+            && variant.source == "openehr-description-clinical-phrase-variant"
+            && !variant.allow_ambiguous));
+
+        let unsafe_derived = derive_description_variants("Spasm - movement");
+        assert!(!unsafe_derived
+            .iter()
+            .any(|variant| variant.term == "movement"));
+    }
+
+    #[test]
+    fn derives_plain_phrase_from_symptom_suffix_terms() {
+        let derived = derive_description_variants("Belching symptom");
+
+        assert!(derived.iter().any(|variant| variant.term == "belching"
+            && variant.source == "openehr-description-clinical-phrase-variant"
+            && !variant.allow_ambiguous));
+    }
+
+    #[test]
+    fn derives_common_urinary_and_gynae_phrase_variants() {
+        let urgency = derive_description_variants("Urgency - urination");
+        assert!(urgency.iter().any(|variant| variant.term == "urgency"
+            && variant.source == "openehr-description-clinical-phrase-variant"
+            && !variant.allow_ambiguous));
+
+        let dysmenorrhea = derive_description_variants("Period pain");
+        assert!(dysmenorrhea
+            .iter()
+            .any(|variant| variant.term == "painful periods"
+                && variant.source == "openehr-description-clinical-phrase-variant"
+                && !variant.allow_ambiguous));
+    }
+
+    #[test]
+    fn derives_site_discharge_and_context_trim_variants() {
+        let discharge = derive_description_variants("Discharge from eye");
+        assert!(discharge
+            .iter()
+            .any(|variant| variant.term == "eye discharge"
+                && variant.source == "openehr-description-clinical-phrase-variant"
+                && !variant.allow_ambiguous));
+
+        let galactorrhea =
+            derive_description_variants("Galactorrhea not associated with childbirth");
+        assert!(galactorrhea
+            .iter()
+            .any(|variant| variant.term == "galactorrhea"
+                && variant.source == "openehr-description-clinical-phrase-variant"
+                && !variant.allow_ambiguous));
+    }
+
+    #[test]
+    fn derives_reduced_function_variants_from_impairment_descriptions() {
+        let derived = derive_description_variants("Impaired hearing");
+
+        assert!(derived
+            .iter()
+            .any(|variant| variant.term == "reduced hearing"
+                && variant.source == "openehr-description-clinical-phrase-variant"
+                && !variant.allow_ambiguous));
+    }
+
+    #[test]
+    fn derives_low_mood_from_depressed_mood() {
+        let derived = derive_description_variants("Depressed mood");
+
+        assert!(derived.iter().any(|variant| variant.term == "low mood"
+            && variant.source == "openehr-description-clinical-phrase-variant"
+            && !variant.allow_ambiguous));
     }
 
     #[test]

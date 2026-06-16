@@ -142,7 +142,17 @@ const SHORTHAND_RULES: &[ShorthandRule] = &[
         objective_safe: true,
     },
     ShorthandRule {
+        source: &["d", "and", "v"],
+        replacement: "diarrhoea and vomiting",
+        objective_safe: true,
+    },
+    ShorthandRule {
         source: &["n", "v"],
+        replacement: "nausea and vomiting",
+        objective_safe: true,
+    },
+    ShorthandRule {
+        source: &["n", "and", "v"],
         replacement: "nausea and vomiting",
         objective_safe: true,
     },
@@ -376,6 +386,14 @@ mod tests {
         assert_eq!(
             normalize_clinical_text("h/o D&V last week", SoapField::History).text,
             "history of diarrhoea and vomiting last week"
+        );
+    }
+
+    #[test]
+    fn expands_spelled_out_gp_shorthand_coordination() {
+        assert_eq!(
+            normalize_clinical_text("D and V overnight; N and V settled", SoapField::History).text,
+            "diarrhoea and vomiting overnight nausea and vomiting settled"
         );
     }
 

@@ -103,6 +103,7 @@ The importer also derives conservative variants from those official descriptions
 - Examination descriptions ending `on auscultation` can contribute the shorter base phrase, for example `Chest clear` from `Chest clear on auscultation`.
 - Body-site sign phrases can match with a small number of intervening modifiers, for example `Exudate on tonsils` matching `Exudate on swollen left tonsil`.
 - Two-token terms can match coordinated shared-head phrasing when the original text contains a coordinator such as `/`, `and`, or `or`, for example `alpha/beta marker` matching both `alpha marker` and `beta marker`.
+- Runtime morphology can match regular plurals and common `-ed`/`-ing` inflections back to loaded refset terms. These matches keep the original evidence span, carry a `:morphology` term-source suffix, prefer the longest phrase, and are suppressed when the morphology signature would map to more than one concept.
 - Simple two-word rate observables can contribute numeric-only labels such as `Pulse` and `P` from `Pulse rate`; official acronym descriptions can contribute numeric-only temperature labels such as `T` from `BT - Body temperature`. These labels are accepted only when followed by a numeric value.
 
 Generated acronym variants are additionally checked against the original typed

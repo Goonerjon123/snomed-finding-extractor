@@ -99,7 +99,7 @@ The response shape is the same for all endpoints. For `/v1/extract-observables` 
 
 ### Match fields
 
-- `term_source` — provenance of the matched term: how it entered the artefact (`preferred_term`, `openehr-description-acronym`, `clinical_alias:<set>`, `built-in-observable-alias`, ...). This replaces the former `confidence` field, which was a fixed per-field constant and **not** a probability. Do not rank or threshold on a probability the engine never produced.
+- `term_source` — provenance of the matched term: how it entered the artefact (`preferred_term`, `openehr-description-acronym`, `clinical_alias:<set>`, `built-in-observable-alias`, ...). Runtime morphology matches append `:morphology`, for example `openehr-display:morphology`. This replaces the former `confidence` field, which was a fixed per-field constant and **not** a probability. Do not rank or threshold on a probability the engine never produced.
 - `value` — present on observable matches when a numeric value follows the label. Shape: `{ "text": "128/82", "unit": "mmHg", "span_start": 3, "span_end": 12 }`. `unit` is omitted when none was typed. The EPR can map this directly into an openEHR `DV_QUANTITY`/`DV_PROPORTION` rather than re-parsing the note. Value capture tolerates filler words, so `BP today 128/82` and `HR of 88 bpm` are captured; compact GP shorthand such as `afeb 37.2` is captured as body temperature when that concept is in the observable artefact.
 
 The Subjective field may be supplied as either `subjective` or `history` in `/v1/extract` requests.
