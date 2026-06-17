@@ -528,7 +528,7 @@ fn examination_findings_include_plain_normal_and_joint_exam_statements() {
     let response = extractor
         .extract_examination_findings(ExaminationFindingsExtractRequest {
             note_id: Some("exam-plain-normal-joint".to_string()),
-            objective: "Abdomen soft. Throat normal. No knee redness or warmth. Small keffusion. Tender medial joint line. Flexion mildly reduced. Gait slightly antalgic. Small pleural effusion.".to_string(),
+            objective: "Abdomen soft. Throat normal. No knee redness or warmth. Small keffusion. Tender medial joint line. Flexion mildly reduced. Gait slightly antalgic. Abdo - tender. Small pleural effusion.".to_string(),
             include_suppressed: true,
             refset_id: None,
         })
@@ -569,8 +569,8 @@ fn examination_findings_include_plain_normal_and_joint_exam_statements() {
             AssertionStatus::Affirmed,
         ),
         (
-            "301399007",
-            "Musculoskeletal tenderness",
+            "110288007",
+            "Tenderness of joint",
             "Tender medial joint line",
             AssertionStatus::Affirmed,
         ),
@@ -586,6 +586,12 @@ fn examination_findings_include_plain_normal_and_joint_exam_statements() {
             "Gait slightly antalgic",
             AssertionStatus::Affirmed,
         ),
+        (
+            "43478001",
+            "Abdominal tenderness",
+            "Abdo - tender",
+            AssertionStatus::Affirmed,
+        ),
     ] {
         assert!(
             matches.contains(&expected),
@@ -595,6 +601,102 @@ fn examination_findings_include_plain_normal_and_joint_exam_statements() {
 
     assert!(!matches.iter().any(|item| {
         item.0 == "387637008" && item.2.eq_ignore_ascii_case("Small pleural effusion")
+    }));
+}
+
+#[test]
+fn examination_findings_include_contextual_objective_exam_patterns() {
+    let artefact = TerminologyArtefact {
+        schema_version: 1,
+        terminology_version: "test".to_string(),
+        source_release: "test".to_string(),
+        refset_id: "test-refset".to_string(),
+        generated_at_utc: "test".to_string(),
+        concepts: vec![concept("247441003", "Erythema", &["erythematous"])],
+        artefact_hash: String::new(),
+    };
+    let extractor = Extractor::new(artefact).unwrap();
+
+    let response = extractor
+        .extract_examination_findings(ExaminationFindingsExtractRequest {
+            note_id: Some("exam-contextual-objective".to_string()),
+            objective: "R elbow - no swelling, erythema or deformity. Point tenderness over lateral epicondyle + common extensor origin. Grip limited by pain. Tender on palpation + percussion over R maxillary + frontal sinuses. Nasal mucosa congested + erythematous. Speculum - thin grey-white homogeneous discharge coating the vaginal walls.".to_string(),
+            include_suppressed: true,
+            refset_id: None,
+        })
+        .unwrap();
+
+    let matches = response
+        .matches
+        .iter()
+        .map(|item| {
+            (
+                item.concept_id.as_str(),
+                item.preferred_term.as_str(),
+                item.matched_text.as_str(),
+                item.assertion,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    for expected in [
+        (
+            "271771009",
+            "Joint swelling",
+            "no swelling",
+            AssertionStatus::Negated,
+        ),
+        (
+            "247441003",
+            "Erythema",
+            "no swelling, erythema",
+            AssertionStatus::Negated,
+        ),
+        (
+            "250087009",
+            "Joint deformity",
+            "no swelling, erythema or deformity",
+            AssertionStatus::Negated,
+        ),
+        (
+            "301399007",
+            "Musculoskeletal tenderness",
+            "Point tenderness over lateral epicondyle + common extensor origin",
+            AssertionStatus::Affirmed,
+        ),
+        (
+            "26544005",
+            "Muscle weakness",
+            "Grip limited by pain",
+            AssertionStatus::Affirmed,
+        ),
+        (
+            "278997003",
+            "Tenderness of bone",
+            "Tender on palpation + percussion over R maxillary + frontal sinuses",
+            AssertionStatus::Affirmed,
+        ),
+        (
+            "247441003",
+            "Erythema",
+            "Nasal mucosa congested + erythematous",
+            AssertionStatus::Affirmed,
+        ),
+        (
+            "271939006",
+            "Vaginal discharge",
+            "white homogeneous discharge coating the vaginal walls",
+            AssertionStatus::Affirmed,
+        ),
+    ] {
+        assert!(
+            matches.contains(&expected),
+            "expected structured exam match {expected:?}; got {matches:?}"
+        );
+    }
+
+    assert!(!matches.iter().any(|item| {
+        item.0 == "247441003" && item.2 == "erythematous" && item.3 == AssertionStatus::Affirmed
     }));
 }
 

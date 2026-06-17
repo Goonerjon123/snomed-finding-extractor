@@ -559,6 +559,172 @@ fn broad_musculoskeletal_symptoms_use_local_and_topic_body_sites() {
 }
 
 #[test]
+fn broad_site_dependent_findings_attach_skin_lesion_and_joint_topic_sites_or_suppress() {
+    let extractor = extractor_with_body_sites(
+        vec![
+            concept("22253000", "Pain", &["pain", "painful"]),
+            concept("418290006", "Itching", &["itch", "itchy", "itching"]),
+            concept("271771009", "Joint swelling", &["joint swelling"]),
+            concept("247441003", "Erythema", &["red", "redness"]),
+            concept("247348008", "Tenderness", &["tender", "tenderness"]),
+        ],
+        vec![
+            concept("61685007", "Lower limb structure", &["leg"]),
+            concept("85562004", "Hand structure", &["hand", "hands"]),
+            concept("8205005", "Wrist region structure", &["wrist", "wrists"]),
+            concept("78883009", "Hallux structure", &["big toe"]),
+            concept("56459004", "Foot structure", &["foot"]),
+        ],
+    );
+
+    let response = extractor
+        .extract(ExtractRequest {
+            history: "Painful red area on lower leg. Itchy rash on hands and wrists. Sudden painful swollen big toe.".to_string(),
+            objective: "First MTP joint swelling, red, and very tender.".to_string(),
+            assessment: "Pain today. Itching worse at night.".to_string(),
+            include_suppressed: true,
+            ..ExtractRequest::default()
+        })
+        .unwrap();
+
+    let lower_leg_pain = response
+        .matches
+        .iter()
+        .find(|item| item.concept_id == "22253000" && item.matched_text == "Painful")
+        .expect("lower leg pain match");
+    assert_eq!(
+        lower_leg_pain
+            .body_site
+            .as_ref()
+            .map(|site| site.concept_id.as_str()),
+        Some("61685007")
+    );
+
+    let itchy = response
+        .matches
+        .iter()
+        .find(|item| item.concept_id == "418290006" && item.matched_text == "Itchy")
+        .expect("itching match");
+    assert_eq!(
+        itchy
+            .body_site
+            .as_ref()
+            .map(|site| site.concept_id.as_str()),
+        Some("85562004")
+    );
+
+    let toe_pain = response
+        .matches
+        .iter()
+        .find(|item| item.concept_id == "22253000" && item.matched_text == "painful")
+        .expect("toe pain match");
+    assert_eq!(
+        toe_pain
+            .body_site
+            .as_ref()
+            .map(|site| site.concept_id.as_str()),
+        Some("78883009")
+    );
+
+    for (concept_id, matched_text) in [
+        ("271771009", "joint swelling"),
+        ("247441003", "red"),
+        ("247348008", "tender"),
+    ] {
+        let item = response
+            .matches
+            .iter()
+            .find(|item| {
+                item.field == SoapField::Objective
+                    && item.concept_id == concept_id
+                    && item.matched_text == matched_text
+            })
+            .unwrap_or_else(|| panic!("expected {concept_id} matched as {matched_text}"));
+        assert_eq!(
+            item.body_site.as_ref().map(|site| site.concept_id.as_str()),
+            Some("78883009")
+        );
+    }
+
+    for (concept_id, matched_text) in [("22253000", "Pain"), ("418290006", "Itching")] {
+        let item = response
+            .suppressed
+            .iter()
+            .find(|item| item.concept_id == concept_id && item.matched_text == matched_text)
+            .unwrap_or_else(|| panic!("expected bare {matched_text} to be suppressed"));
+        assert_eq!(item.assertion, AssertionStatus::Ambiguous);
+        assert_eq!(
+            item.rule_ids,
+            vec!["CTX_BROAD_FINDING_WITHOUT_BODY_SITE".to_string()]
+        );
+    }
+}
+
+#[test]
+fn abdominal_shorthand_heading_supplies_body_site_for_general_tenderness() {
+    let extractor = extractor_with_body_sites(
+        vec![concept(
+            "247348008",
+            "Tenderness",
+            &["tender", "tenderness"],
+        )],
+        vec![concept("818983003", "Entire abdomen", &["abdomen"])],
+    );
+
+    let response = extractor
+        .extract(ExtractRequest {
+            objective: "Abdo - tender".to_string(),
+            include_suppressed: true,
+            ..ExtractRequest::default()
+        })
+        .unwrap();
+
+    let tenderness = response
+        .matches
+        .iter()
+        .find(|item| item.concept_id == "247348008")
+        .expect("tenderness match");
+    assert_eq!(
+        tenderness
+            .body_site
+            .as_ref()
+            .map(|site| (site.concept_id.as_str(), site.matched_text.as_str())),
+        Some(("818983003", "Abdo"))
+    );
+    assert!(response.suppressed.is_empty());
+}
+
+#[test]
+fn normal_exam_status_suppresses_bare_vision_impairment_finding() {
+    let extractor = Extractor::new(TerminologyArtefact {
+        schema_version: 1,
+        terminology_version: "test".to_string(),
+        source_release: "test".to_string(),
+        refset_id: "fixture-symptoms".to_string(),
+        generated_at_utc: "test".to_string(),
+        artefact_hash: "UNVERIFIED".to_string(),
+        concepts: vec![concept("397540003", "Visual impairment", &["vision"])],
+    })
+    .unwrap();
+
+    let response = extractor
+        .extract(ExtractRequest {
+            objective: "Eye movements full, no proptosis, vision normal.".to_string(),
+            include_suppressed: true,
+            ..ExtractRequest::default()
+        })
+        .unwrap();
+
+    assert!(response.matches.is_empty());
+    assert_eq!(response.suppressed.len(), 1);
+    assert_eq!(response.suppressed[0].concept_id, "397540003");
+    assert_eq!(
+        response.suppressed[0].rule_ids,
+        vec!["CTX_EXAM_VISION_NORMAL_NOT_VISUAL_IMPAIRMENT".to_string()]
+    );
+}
+
+#[test]
 fn pv_bleeding_and_lower_abdominal_cramping_extract_specific_concepts() {
     let extractor = Extractor::new(TerminologyArtefact {
         schema_version: 1,

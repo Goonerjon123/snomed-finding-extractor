@@ -17,6 +17,7 @@ pub struct Extractor {
     artefact: TerminologyArtefact,
     matcher: TerminologyMatcher,
     body_site_matcher: Option<TerminologyMatcher>,
+    body_site_artefact: Option<TerminologyArtefact>,
 }
 
 impl Extractor {
@@ -26,6 +27,7 @@ impl Extractor {
             artefact,
             matcher,
             body_site_matcher: None,
+            body_site_artefact: None,
         })
     }
 
@@ -39,6 +41,7 @@ impl Extractor {
             artefact,
             matcher,
             body_site_matcher: Some(body_site_matcher),
+            body_site_artefact: Some(body_site_artefact),
         })
     }
 
@@ -98,7 +101,7 @@ impl Extractor {
 
             let capture_values = matches!(extraction_kind, ExtractionKind::Observable);
             let raw_matches = self.matcher.find_in_field(field, text, capture_values);
-            let body_site_matches = if matches!(extraction_kind, ExtractionKind::Finding) {
+            let mut body_site_matches = if matches!(extraction_kind, ExtractionKind::Finding) {
                 self.body_site_matcher
                     .as_ref()
                     .map(|matcher| matcher.find_in_field(field, text, false))
@@ -106,6 +109,16 @@ impl Extractor {
             } else {
                 Vec::new()
             };
+            if matches!(extraction_kind, ExtractionKind::Finding) {
+                if let Some(body_site_artefact) = self.body_site_artefact.as_ref() {
+                    add_derived_body_site_matches(
+                        field,
+                        text,
+                        body_site_artefact,
+                        &mut body_site_matches,
+                    );
+                }
+            }
             let spans = raw_matches
                 .iter()
                 .map(|raw| (raw.span_start, raw.span_end))
@@ -129,6 +142,22 @@ impl Extractor {
                     } else {
                         None
                     };
+                    if matches!(extraction_kind, ExtractionKind::Finding)
+                        && self.body_site_matcher.is_some()
+                        && body_site.is_none()
+                        && site_dependent_broad_finding(&raw)
+                    {
+                        if request.include_suppressed {
+                            suppressed.push(to_suppressed_match(
+                                raw,
+                                AssertionStatus::Ambiguous,
+                                vec!["CTX_BROAD_FINDING_WITHOUT_BODY_SITE".to_string()],
+                                "Suppressed: broad site-dependent findings require a linked body site."
+                                    .to_string(),
+                            ));
+                        }
+                        continue;
+                    }
                     matches.push(to_finding_match(
                         raw,
                         accepted_rule_ids(extraction_kind, &decision),
@@ -861,9 +890,13 @@ fn add_normal_examination_matches(
     add_standalone_exam_matches(field, field_text, &normalized, &tokens, matches);
     add_named_exam_test_matches(field, field_text, &normalized, &tokens, matches);
     add_negated_exam_sign_matches(field, field_text, &normalized, &tokens, matches);
+    add_negated_swelling_matches(field, field_text, &normalized, &tokens, matches);
     add_anatomical_tenderness_matches(field, field_text, &normalized, &tokens, matches);
+    add_anatomical_surface_sign_matches(field, field_text, &normalized, &tokens, matches);
+    add_contextual_discharge_matches(field, field_text, &normalized, &tokens, matches);
     add_joint_effusion_matches(field, field_text, &normalized, &tokens, matches);
     add_muscle_weakness_matches(field, field_text, &normalized, &tokens, matches);
+    add_grip_limited_by_pain_matches(field, field_text, &normalized, &tokens, matches);
     add_capillary_refill_threshold_matches(field, field_text, &normalized, &tokens, matches);
     add_antalgic_gait_matches(field, field_text, &normalized, &tokens, matches);
     add_breast_lump_matches(field, field_text, &normalized, &tokens, matches);
@@ -1225,6 +1258,76 @@ fn add_negated_exam_sign_matches(
     }
 }
 
+fn add_negated_swelling_matches(
+    field: SoapField,
+    field_text: &str,
+    normalized: &NormalizedText,
+    tokens: &[ExamToken],
+    matches: &mut Vec<FindingMatch>,
+) {
+    for negation_index in 0..tokens.len() {
+        if !exam_negation_token(tokens[negation_index].text.as_str()) {
+            continue;
+        }
+
+        let search_end = (negation_index + 7).min(tokens.len());
+        for head_index in negation_index + 1..search_end {
+            if !matches!(
+                tokens[head_index].text.as_str(),
+                "swelling" | "swollen" | "oedema" | "edema"
+            ) || !negated_exam_sign_gap_is_clear(tokens, negation_index + 1, head_index, true)
+            {
+                continue;
+            }
+
+            let Some((concept_id, preferred_term)) =
+                negated_swelling_concept(tokens, negation_index, head_index)
+            else {
+                continue;
+            };
+
+            add_structured_exam_match_from_tokens(
+                field,
+                field_text,
+                normalized,
+                tokens,
+                StructuredExamMatchSpec {
+                    start_token: negation_index,
+                    end_token: head_index + 1,
+                    concept_id,
+                    preferred_term,
+                    assertion: AssertionStatus::Negated,
+                    value: None,
+                },
+                matches,
+            );
+        }
+    }
+}
+
+fn negated_swelling_concept(
+    tokens: &[ExamToken],
+    negation_index: usize,
+    head_index: usize,
+) -> Option<(&'static str, &'static str)> {
+    let context_start = negation_index.saturating_sub(8);
+    if tokens[context_start..head_index]
+        .iter()
+        .any(|token| musculoskeletal_exam_topic_token(token.text.as_str()))
+    {
+        return Some(("271771009", "Joint swelling"));
+    }
+
+    if tokens[negation_index + 1..head_index]
+        .iter()
+        .any(|token| matches!(token.text.as_str(), "periorbital" | "eyelid" | "eye"))
+    {
+        return None;
+    }
+
+    Some(("298349001", "Soft tissue swelling"))
+}
+
 fn add_anatomical_tenderness_matches(
     field: SoapField,
     field_text: &str,
@@ -1276,6 +1379,53 @@ fn add_anatomical_tenderness_matches(
             );
         }
 
+        if let Some((location_start, location_end)) =
+            tenderness_location_span(tokens, head_index, field_text)
+        {
+            let start = preceding_tenderness_context_start(tokens, location_start, head_index);
+            let (concept_id, preferred_term) =
+                tenderness_concept_for_modifier_tokens(&tokens[start..location_end]);
+            add_structured_exam_match_from_tokens(
+                field,
+                field_text,
+                normalized,
+                tokens,
+                StructuredExamMatchSpec {
+                    start_token: start,
+                    end_token: location_end,
+                    concept_id,
+                    preferred_term,
+                    assertion: AssertionStatus::Affirmed,
+                    value: None,
+                },
+                matches,
+            );
+        }
+
+        if start == head_index {
+            if let Some(heading_start) =
+                heading_tenderness_modifier_start(tokens, head_index, field_text)
+            {
+                let (concept_id, preferred_term) =
+                    tenderness_concept_for_modifier_tokens(&tokens[heading_start..head_index]);
+                add_structured_exam_match_from_tokens(
+                    field,
+                    field_text,
+                    normalized,
+                    tokens,
+                    StructuredExamMatchSpec {
+                        start_token: heading_start,
+                        end_token: head_index + 1,
+                        concept_id,
+                        preferred_term,
+                        assertion: AssertionStatus::Affirmed,
+                        value: None,
+                    },
+                    matches,
+                );
+            }
+        }
+
         if tokens[head_index].text != "tender" {
             continue;
         }
@@ -1316,6 +1466,144 @@ fn add_anatomical_tenderness_matches(
     }
 }
 
+fn tenderness_location_span(
+    tokens: &[ExamToken],
+    head_index: usize,
+    field_text: &str,
+) -> Option<(usize, usize)> {
+    let mut index = head_index + 1;
+    if index >= tokens.len() {
+        return None;
+    }
+
+    let scan_limit = (head_index + 12).min(tokens.len());
+    while index < scan_limit {
+        if exam_phrase_boundary_between(
+            field_text,
+            tokens[index - 1].orig_end,
+            tokens[index].orig_start,
+        ) {
+            return None;
+        }
+        if tenderness_location_connector(tokens, index) {
+            let mut end = index + 1;
+            let mut saw_location = false;
+            while end < scan_limit
+                && !exam_phrase_boundary_between(
+                    field_text,
+                    tokens[end - 1].orig_end,
+                    tokens[end].orig_start,
+                )
+                && tenderness_location_token(tokens[end].text.as_str())
+            {
+                if anatomical_exam_modifier_token(tokens[end].text.as_str()) {
+                    saw_location = true;
+                }
+                end += 1;
+            }
+            if saw_location {
+                return Some((index, end));
+            }
+            return None;
+        }
+        if !tenderness_bridge_token(tokens[index].text.as_str()) {
+            return None;
+        }
+        index += 1;
+    }
+
+    None
+}
+
+fn preceding_tenderness_context_start(
+    tokens: &[ExamToken],
+    location_start: usize,
+    head_index: usize,
+) -> usize {
+    let mut start = head_index;
+    let lower = head_index.saturating_sub(4);
+    while start > lower && tenderness_prefix_token(tokens[start - 1].text.as_str()) {
+        start -= 1;
+    }
+    start.min(location_start)
+}
+
+fn tenderness_bridge_token(token: &str) -> bool {
+    matches!(
+        token,
+        "and" | "plus" | "palpation" | "percussion" | "on" | "to" | "at" | "of"
+    )
+}
+
+fn tenderness_location_connector(tokens: &[ExamToken], index: usize) -> bool {
+    matches!(tokens[index].text.as_str(), "over" | "at" | "of" | "to")
+        || (tokens[index].text == "on"
+            && tokens
+                .get(index + 1)
+                .map(|token| !matches!(token.text.as_str(), "palpation" | "percussion"))
+                .unwrap_or(true))
+}
+
+fn tenderness_location_token(token: &str) -> bool {
+    anatomical_exam_modifier_token(token)
+        || matches!(
+            token,
+            "and" | "plus" | "or" | "the" | "a" | "an" | "r" | "l" | "right" | "left" | "common"
+        )
+}
+
+fn tenderness_prefix_token(token: &str) -> bool {
+    degree_modifier_token(token)
+        || anatomical_exam_modifier_token(token)
+        || matches!(token, "point" | "focal" | "localized" | "localised")
+}
+
+fn heading_tenderness_modifier_start(
+    tokens: &[ExamToken],
+    head_index: usize,
+    field_text: &str,
+) -> Option<usize> {
+    let mut status_start = head_index;
+    while status_start > 0
+        && degree_modifier_token(tokens[status_start - 1].text.as_str())
+        && !exam_phrase_boundary_between(
+            field_text,
+            tokens[status_start - 1].orig_end,
+            tokens[status_start].orig_start,
+        )
+    {
+        status_start -= 1;
+    }
+
+    let mut start = status_start.checked_sub(1)?;
+    if !anatomical_exam_modifier_token(tokens[start].text.as_str()) {
+        return None;
+    }
+
+    let separator = field_text.get(tokens[start].orig_end..tokens[status_start].orig_start)?;
+    if !heading_separator(separator.trim_start()) {
+        return None;
+    }
+
+    let lower = start.saturating_sub(4);
+    while start > lower
+        && anatomical_exam_modifier_token(tokens[start - 1].text.as_str())
+        && !exam_phrase_boundary_except_hyphen_between(
+            field_text,
+            tokens[start - 1].orig_end,
+            tokens[start].orig_start,
+        )
+    {
+        start -= 1;
+    }
+
+    if start > 0 && exam_negation_token(tokens[start - 1].text.as_str()) {
+        return None;
+    }
+
+    Some(start)
+}
+
 fn tenderness_concept_for_modifier_tokens(tokens: &[ExamToken]) -> (&'static str, &'static str) {
     if tokens.iter().any(|token| token.text == "epigastric") {
         return ("301403003", "Tenderness of epigastric region");
@@ -1329,11 +1617,34 @@ fn tenderness_concept_for_modifier_tokens(tokens: &[ExamToken]) -> (&'static str
     if tokens.iter().any(|token| token.text == "breast") {
         return ("55222007", "Tenderness of breast");
     }
+    if tokens.iter().any(|token| {
+        matches!(
+            token.text.as_str(),
+            "adnexal"
+                | "adnexa"
+                | "genital"
+                | "suprapubic"
+                | "testicle"
+                | "testis"
+                | "uterine"
+                | "uterus"
+        )
+    }) {
+        return ("301394002", "Genitourinary tenderness");
+    }
+    if tokens.iter().any(|token| {
+        matches!(
+            token.text.as_str(),
+            "frontal" | "maxillary" | "sinus" | "sinuses"
+        )
+    }) {
+        return ("278997003", "Tenderness of bone");
+    }
     if tokens
         .iter()
-        .any(|token| matches!(token.text.as_str(), "genital" | "testicle" | "testis"))
+        .any(|token| matches!(token.text.as_str(), "joint" | "joints"))
     {
-        return ("301394002", "Genitourinary tenderness");
+        return ("110288007", "Tenderness of joint");
     }
     if tokens.iter().any(|token| token.text == "renal") {
         return ("102830001", "Renal angle tenderness");
@@ -1347,6 +1658,228 @@ fn abdominal_tenderness_modifier_token(token: &str) -> bool {
         token,
         "abdomen" | "abdominal" | "fossa" | "iliac" | "quadrant"
     )
+}
+
+fn add_anatomical_surface_sign_matches(
+    field: SoapField,
+    field_text: &str,
+    normalized: &NormalizedText,
+    tokens: &[ExamToken],
+    matches: &mut Vec<FindingMatch>,
+) {
+    for head_index in 0..tokens.len() {
+        let concept = match tokens[head_index].text.as_str() {
+            "erythema" | "erythematous" | "red" | "redness" => Some(("247441003", "Erythema")),
+            "hot" | "warm" | "warmth" => Some(("707793005", "Hot skin")),
+            _ => None,
+        };
+        let Some((concept_id, preferred_term)) = concept else {
+            continue;
+        };
+        if preceding_negation_token(tokens, head_index, 5) {
+            continue;
+        }
+
+        let Some(start) = surface_sign_context_start(tokens, head_index, field_text) else {
+            continue;
+        };
+        add_structured_exam_match_from_tokens(
+            field,
+            field_text,
+            normalized,
+            tokens,
+            StructuredExamMatchSpec {
+                start_token: start,
+                end_token: head_index + 1,
+                concept_id,
+                preferred_term,
+                assertion: AssertionStatus::Affirmed,
+                value: None,
+            },
+            matches,
+        );
+    }
+}
+
+fn surface_sign_context_start(
+    tokens: &[ExamToken],
+    head_index: usize,
+    field_text: &str,
+) -> Option<usize> {
+    let lower = head_index.saturating_sub(6);
+    let mut start = head_index;
+    let mut saw_site = false;
+    while start > lower
+        && surface_sign_context_token(tokens[start - 1].text.as_str())
+        && !exam_phrase_boundary_between(
+            field_text,
+            tokens[start - 1].orig_end,
+            tokens[start].orig_start,
+        )
+    {
+        start -= 1;
+        if anatomical_exam_modifier_token(tokens[start].text.as_str()) {
+            saw_site = true;
+        }
+    }
+
+    if saw_site && start < head_index {
+        Some(start)
+    } else {
+        None
+    }
+}
+
+fn surface_sign_context_token(token: &str) -> bool {
+    anatomical_exam_modifier_token(token)
+        || degree_modifier_token(token)
+        || matches!(
+            token,
+            "and" | "plus" | "congested" | "mucosa" | "mucosal" | "skin"
+        )
+}
+
+fn add_contextual_discharge_matches(
+    field: SoapField,
+    field_text: &str,
+    normalized: &NormalizedText,
+    tokens: &[ExamToken],
+    matches: &mut Vec<FindingMatch>,
+) {
+    for head_index in 0..tokens.len() {
+        if !matches!(tokens[head_index].text.as_str(), "discharge" | "discharges") {
+            continue;
+        }
+
+        if preceding_negation_token(tokens, head_index, 4) {
+            continue;
+        }
+
+        let Some((start, end, concept_id, preferred_term)) =
+            contextual_discharge_span(tokens, head_index, field_text)
+        else {
+            continue;
+        };
+
+        add_structured_exam_match_from_tokens(
+            field,
+            field_text,
+            normalized,
+            tokens,
+            StructuredExamMatchSpec {
+                start_token: start,
+                end_token: end,
+                concept_id,
+                preferred_term,
+                assertion: AssertionStatus::Affirmed,
+                value: None,
+            },
+            matches,
+        );
+    }
+}
+
+fn contextual_discharge_span(
+    tokens: &[ExamToken],
+    head_index: usize,
+    field_text: &str,
+) -> Option<(usize, usize, &'static str, &'static str)> {
+    let mut start = head_index;
+    let lower = head_index.saturating_sub(5);
+    while start > lower
+        && discharge_prefix_token(tokens[start - 1].text.as_str())
+        && !exam_phrase_boundary_between(
+            field_text,
+            tokens[start - 1].orig_end,
+            tokens[start].orig_start,
+        )
+    {
+        start -= 1;
+    }
+
+    let scan_limit = (head_index + 8).min(tokens.len());
+    let mut end = head_index + 1;
+    let mut saw_vaginal = tokens[start..end]
+        .iter()
+        .any(|token| vaginal_context_token(token.text.as_str()));
+    let mut saw_nasal = tokens[start..end]
+        .iter()
+        .any(|token| nasal_context_token(token.text.as_str()));
+    while end < scan_limit
+        && !exam_phrase_boundary_except_hyphen_between(
+            field_text,
+            tokens[end - 1].orig_end,
+            tokens[end].orig_start,
+        )
+        && discharge_suffix_token(tokens[end].text.as_str())
+    {
+        if vaginal_context_token(tokens[end].text.as_str()) {
+            saw_vaginal = true;
+        }
+        if nasal_context_token(tokens[end].text.as_str()) {
+            saw_nasal = true;
+        }
+        end += 1;
+    }
+
+    if saw_vaginal {
+        return Some((start, end, "271939006", "Vaginal discharge"));
+    }
+    if saw_nasal {
+        return Some((start, end, "836474000", "Mucopurulent discharge"));
+    }
+
+    None
+}
+
+fn discharge_prefix_token(token: &str) -> bool {
+    degree_modifier_token(token)
+        || matches!(
+            token,
+            "thin"
+                | "thick"
+                | "grey"
+                | "gray"
+                | "white"
+                | "greywhite"
+                | "graywhite"
+                | "homogeneous"
+                | "mucopurulent"
+                | "purulent"
+                | "watery"
+                | "vaginal"
+                | "nasal"
+        )
+}
+
+fn discharge_suffix_token(token: &str) -> bool {
+    matches!(
+        token,
+        "coating"
+            | "in"
+            | "on"
+            | "from"
+            | "of"
+            | "both"
+            | "the"
+            | "vaginal"
+            | "walls"
+            | "wall"
+            | "nasal"
+            | "passage"
+            | "passages"
+            | "nose"
+            | "nostril"
+            | "nostrils"
+    )
+}
+
+fn vaginal_context_token(token: &str) -> bool {
+    matches!(token, "vaginal" | "vagina" | "vulval" | "vulvar")
+}
+
+fn nasal_context_token(token: &str) -> bool {
+    matches!(token, "nasal" | "nose" | "nostril" | "nostrils")
 }
 
 fn add_joint_effusion_matches(
@@ -1481,6 +2014,63 @@ fn add_muscle_weakness_matches(
                 end_token: head_index + 1,
                 concept_id,
                 preferred_term,
+                assertion: AssertionStatus::Affirmed,
+                value: None,
+            },
+            matches,
+        );
+    }
+}
+
+fn add_grip_limited_by_pain_matches(
+    field: SoapField,
+    field_text: &str,
+    normalized: &NormalizedText,
+    tokens: &[ExamToken],
+    matches: &mut Vec<FindingMatch>,
+) {
+    for grip_index in 0..tokens.len() {
+        if tokens[grip_index].text != "grip" {
+            continue;
+        }
+
+        let scan_limit = (grip_index + 6).min(tokens.len());
+        let mut limited_index = None;
+        let mut pain_index = None;
+        for index in grip_index + 1..scan_limit {
+            if exam_phrase_boundary_between(
+                field_text,
+                tokens[index - 1].orig_end,
+                tokens[index].orig_start,
+            ) {
+                break;
+            }
+            if matches!(
+                tokens[index].text.as_str(),
+                "limited" | "reduced" | "restricted"
+            ) {
+                limited_index = Some(index);
+            }
+            if matches!(tokens[index].text.as_str(), "pain" | "painful") {
+                pain_index = Some(index);
+                break;
+            }
+        }
+
+        let (Some(_), Some(pain_index)) = (limited_index, pain_index) else {
+            continue;
+        };
+
+        add_structured_exam_match_from_tokens(
+            field,
+            field_text,
+            normalized,
+            tokens,
+            StructuredExamMatchSpec {
+                start_token: grip_index,
+                end_token: pain_index + 1,
+                concept_id: "26544005",
+                preferred_term: "Muscle weakness",
                 assertion: AssertionStatus::Affirmed,
                 value: None,
             },
@@ -1686,9 +2276,22 @@ fn add_structured_exam_match_from_tokens(
     }
     let span_start = tokens[start_token].orig_start;
     let span_end = tokens[end_token - 1].orig_end;
-    if !should_add_structured_exam_match(matches, field, concept_id, span_start, span_end) {
+    if !should_add_structured_exam_match(
+        matches, field, concept_id, span_start, span_end, assertion,
+    ) {
         return;
     }
+    matches.retain(|item| {
+        !(item.field == field
+            && item.concept_id == concept_id
+            && !item
+                .term_source
+                .starts_with("built-in-structured-exam-feature")
+            && span_start <= item.span_start
+            && span_end >= item.span_end
+            && ((span_start, span_end) != (item.span_start, item.span_end)
+                || assertion != AssertionStatus::Affirmed))
+    });
 
     let normalized_start = tokens[start_token].normalized_start;
     let normalized_end = tokens[end_token - 1].normalized_end;
@@ -1717,15 +2320,26 @@ fn should_add_structured_exam_match(
     concept_id: &str,
     span_start: usize,
     span_end: usize,
+    assertion: AssertionStatus,
 ) -> bool {
     !matches.iter().any(|item| {
+        let structured_replaces_raw = item.concept_id == concept_id
+            && !item
+                .term_source
+                .starts_with("built-in-structured-exam-feature")
+            && span_start <= item.span_start
+            && span_end >= item.span_end
+            && ((span_start, span_end) != (item.span_start, item.span_end)
+                || assertion != AssertionStatus::Affirmed);
         item.field == field
             && ((item.concept_id == concept_id
-                && spans_overlap(span_start, span_end, item.span_start, item.span_end))
+                && spans_overlap(span_start, span_end, item.span_start, item.span_end)
+                && !structured_replaces_raw)
                 || (!item
                     .term_source
                     .starts_with("built-in-structured-exam-feature")
-                    && spans_overlap(span_start, span_end, item.span_start, item.span_end)))
+                    && spans_overlap(span_start, span_end, item.span_start, item.span_end)
+                    && !structured_replaces_raw))
     })
 }
 
@@ -1943,6 +2557,10 @@ fn negated_exam_sign_gap_is_clear(
 }
 
 fn known_exam_sign_head(token: &str) -> bool {
+    if matches!(token, "swelling" | "swollen" | "oedema" | "edema") {
+        return true;
+    }
+
     NEGATED_EXAM_SIGNS
         .iter()
         .any(|sign| sign.heads.contains(&token))
@@ -2113,6 +2731,8 @@ fn anatomical_exam_modifier_token(token: &str) -> bool {
     matches!(
         token,
         "abdominal"
+            | "adnexal"
+            | "adnexa"
             | "abdomen"
             | "angle"
             | "ankle"
@@ -2123,9 +2743,12 @@ fn anatomical_exam_modifier_token(token: &str) -> bool {
             | "cervical"
             | "chest"
             | "elbow"
+            | "epicondyle"
             | "epigastric"
+            | "extensor"
             | "fossa"
             | "foot"
+            | "frontal"
             | "genital"
             | "hand"
             | "hip"
@@ -2138,10 +2761,17 @@ fn anatomical_exam_modifier_token(token: &str) -> bool {
             | "lower"
             | "lumbar"
             | "mastoid"
+            | "maxillary"
             | "medial"
             | "muscle"
+            | "mucosa"
+            | "mucosal"
+            | "nasal"
             | "neck"
+            | "oropharynx"
+            | "origin"
             | "paraspinal"
+            | "periorbital"
             | "renal"
             | "right"
             | "sacroiliac"
@@ -2150,11 +2780,19 @@ fn anatomical_exam_modifier_token(token: &str) -> bool {
             | "spinal"
             | "spine"
             | "sternum"
+            | "sinus"
+            | "sinuses"
+            | "suprapubic"
             | "temporal"
             | "testicle"
             | "testis"
             | "thoracic"
             | "upper"
+            | "uterine"
+            | "uterus"
+            | "vaginal"
+            | "walls"
+            | "wall"
             | "quadrant"
             | "wrist"
     )
@@ -2174,6 +2812,15 @@ fn exam_phrase_boundary_between(text: &str, start: usize, end: usize) -> bool {
             ':' | ';' | '.' | '\n' | '\r' | '-' | '\u{2013}' | '\u{2014}'
         )
     })
+}
+
+fn exam_phrase_boundary_except_hyphen_between(text: &str, start: usize, end: usize) -> bool {
+    if start >= end || end > text.len() {
+        return false;
+    }
+    text[start..end]
+        .chars()
+        .any(|ch| matches!(ch, ':' | ';' | '.' | '\n' | '\r' | '\u{2013}' | '\u{2014}'))
 }
 
 fn spans_overlap(left_start: usize, left_end: usize, right_start: usize, right_end: usize) -> bool {
@@ -2228,6 +2875,19 @@ fn semantic_context_decision(
             });
         }
 
+        if raw.concept_id == "397540003"
+            && raw.normalized_match == "vision"
+            && has_normal_exam_status_after(raw.field, field_text, raw.span_end)
+        {
+            return Some(crate::context::AssertionDecision {
+                accepted: false,
+                assertion: AssertionStatus::Ambiguous,
+                rule_ids: vec!["CTX_EXAM_VISION_NORMAL_NOT_VISUAL_IMPAIRMENT".to_string()],
+                explanation: "Suppressed: vision is documented as normal rather than impaired."
+                    .to_string(),
+            });
+        }
+
         if raw.concept_id == "397974008" && raw.normalized_match == "sensation" {
             return Some(crate::context::AssertionDecision {
                 accepted: false,
@@ -2276,6 +2936,19 @@ fn semantic_context_decision(
             explanation:
                 "Suppressed: bare urgency is not specific to urinary urgency without urinary context."
                     .to_string(),
+        });
+    }
+
+    if raw.concept_id == "397540003"
+        && raw.normalized_match == "vision"
+        && has_normal_exam_status_after(raw.field, field_text, raw.span_end)
+    {
+        return Some(crate::context::AssertionDecision {
+            accepted: false,
+            assertion: AssertionStatus::Ambiguous,
+            rule_ids: vec!["CTX_EXAM_VISION_NORMAL_NOT_VISUAL_IMPAIRMENT".to_string()],
+            explanation: "Suppressed: vision is documented as normal rather than impaired."
+                .to_string(),
         });
     }
 
@@ -2796,6 +3469,207 @@ fn body_site_match_from_raw(raw: &RawMatch) -> BodySiteMatch {
     }
 }
 
+fn add_derived_body_site_matches(
+    field: SoapField,
+    field_text: &str,
+    body_site_artefact: &TerminologyArtefact,
+    body_site_matches: &mut Vec<RawMatch>,
+) {
+    let normalized = normalize_clinical_text(field_text, field);
+    let tokens = exam_tokens(&normalized);
+
+    add_abdominal_shorthand_body_site_matches(
+        field,
+        field_text,
+        body_site_artefact,
+        &tokens,
+        body_site_matches,
+    );
+    add_mtp_body_site_matches(
+        field,
+        field_text,
+        body_site_artefact,
+        &tokens,
+        body_site_matches,
+    );
+}
+
+fn add_abdominal_shorthand_body_site_matches(
+    field: SoapField,
+    field_text: &str,
+    body_site_artefact: &TerminologyArtefact,
+    tokens: &[ExamToken],
+    body_site_matches: &mut Vec<RawMatch>,
+) {
+    let Some((concept_id, preferred_term)) =
+        body_site_concept_by_preferred_term(body_site_artefact, "Entire abdomen")
+    else {
+        return;
+    };
+
+    for (index, token) in tokens.iter().enumerate() {
+        if token.text != "abdominal" {
+            continue;
+        }
+        let Some(matched_text) = field_text.get(token.orig_start..token.orig_end) else {
+            continue;
+        };
+        if !matched_text.eq_ignore_ascii_case("abdo") {
+            continue;
+        }
+        push_derived_body_site_match(
+            body_site_matches,
+            RawMatch {
+                concept_id: concept_id.to_string(),
+                preferred_term: preferred_term.to_string(),
+                field,
+                span_start: tokens[index].orig_start,
+                span_end: tokens[index].orig_end,
+                matched_text: matched_text.to_string(),
+                normalized_match: tokens[index].text.clone(),
+                pattern_source: "built-in-body-site-shorthand".to_string(),
+                value: None,
+            },
+        );
+    }
+}
+
+fn add_mtp_body_site_matches(
+    field: SoapField,
+    field_text: &str,
+    body_site_artefact: &TerminologyArtefact,
+    tokens: &[ExamToken],
+    body_site_matches: &mut Vec<RawMatch>,
+) {
+    for (index, token) in tokens.iter().enumerate() {
+        if !metatarsophalangeal_joint_token(token.text.as_str()) {
+            continue;
+        }
+
+        let hallux_context = has_first_mtp_context(tokens, index);
+        let preferred_body_site = if hallux_context {
+            "Hallux structure"
+        } else {
+            "Foot structure"
+        };
+        let Some((concept_id, preferred_term)) =
+            body_site_concept_by_preferred_term(body_site_artefact, preferred_body_site)
+        else {
+            continue;
+        };
+
+        let mut start = if hallux_context && index > 0 {
+            index - 1
+        } else {
+            index
+        };
+        if start > 0 && laterality_body_site_prefix(tokens[start - 1].text.as_str()) {
+            start -= 1;
+        }
+
+        let span_start = tokens[start].orig_start;
+        let span_end = tokens[index].orig_end;
+        let Some(matched_text) = field_text.get(span_start..span_end) else {
+            continue;
+        };
+        let normalized_match = tokens[start..=index]
+            .iter()
+            .map(|token| token.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        push_derived_body_site_match(
+            body_site_matches,
+            RawMatch {
+                concept_id: concept_id.to_string(),
+                preferred_term: preferred_term.to_string(),
+                field,
+                span_start,
+                span_end,
+                matched_text: matched_text.to_string(),
+                normalized_match,
+                pattern_source: "built-in-body-site-shorthand".to_string(),
+                value: None,
+            },
+        );
+    }
+}
+
+fn push_derived_body_site_match(body_site_matches: &mut Vec<RawMatch>, derived: RawMatch) {
+    if body_site_matches.iter().any(|existing| {
+        existing.field == derived.field
+            && existing.concept_id == derived.concept_id
+            && existing.span_start == derived.span_start
+            && existing.span_end == derived.span_end
+    }) {
+        return;
+    }
+
+    body_site_matches.push(derived);
+}
+
+fn body_site_concept_by_preferred_term<'a>(
+    body_site_artefact: &'a TerminologyArtefact,
+    preferred_term: &str,
+) -> Option<(&'a str, &'a str)> {
+    body_site_artefact
+        .concepts
+        .iter()
+        .find(|concept| concept.active && concept.preferred_term == preferred_term)
+        .map(|concept| (concept.concept_id.as_str(), concept.preferred_term.as_str()))
+}
+
+fn metatarsophalangeal_joint_token(token: &str) -> bool {
+    matches!(token, "mtp" | "mtpj" | "metatarsophalangeal")
+}
+
+fn has_first_mtp_context(tokens: &[ExamToken], index: usize) -> bool {
+    index > 0
+        && matches!(
+            tokens[index - 1].text.as_str(),
+            "first" | "1st" | "1" | "great" | "hallux"
+        )
+}
+
+fn laterality_body_site_prefix(token: &str) -> bool {
+    matches!(
+        token,
+        "r" | "l" | "right" | "left" | "bilateral" | "bilaterally" | "both"
+    )
+}
+
+fn site_dependent_broad_finding(raw: &RawMatch) -> bool {
+    let preferred = normalize_term(&raw.preferred_term);
+    matches!(
+        preferred.as_str(),
+        "pain"
+            | "itching"
+            | "swelling"
+            | "joint swelling"
+            | "erythema"
+            | "hot skin"
+            | "tenderness"
+            | "mass of body structure"
+    ) || matches!(
+        raw.normalized_match.as_str(),
+        "pain"
+            | "painful"
+            | "itch"
+            | "itching"
+            | "itchy"
+            | "swelling"
+            | "swollen"
+            | "red"
+            | "redness"
+            | "warm"
+            | "warmth"
+            | "hot"
+            | "tender"
+            | "tenderness"
+            | "lump"
+    )
+}
+
 fn symptom_already_implies_body_site(
     raw: &RawMatch,
     body_site_matcher: &TerminologyMatcher,
@@ -2938,6 +3812,7 @@ fn musculoskeletal_topic_body_site(site: &RawMatch) -> bool {
                         | "finger"
                         | "foot"
                         | "hand"
+                        | "hallux"
                         | "hip"
                         | "joint"
                         | "knee"
@@ -2977,11 +3852,15 @@ fn body_site_topic_starts_scope(field_text: &str, _site_start: usize, site_end: 
                 | "injury"
                 | "locking"
                 | "pain"
+                | "rash"
+                | "red"
                 | "redness"
                 | "stiffness"
                 | "swelling"
+                | "swollen"
                 | "tender"
                 | "tenderness"
+                | "warm"
                 | "warmth"
         )
     })
@@ -3112,6 +3991,25 @@ fn allowed_body_site_gap_token(token: &str) -> bool {
             | "front"
             | "back"
             | "and"
+            | "area"
+            | "areas"
+            | "congested"
+            | "congestion"
+            | "hot"
+            | "itchy"
+            | "joint"
+            | "lesion"
+            | "lesions"
+            | "mucosa"
+            | "mucosal"
+            | "patch"
+            | "patches"
+            | "rash"
+            | "red"
+            | "skin"
+            | "swollen"
+            | "tender"
+            | "warm"
     )
 }
 
