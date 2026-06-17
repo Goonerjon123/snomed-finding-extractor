@@ -3257,6 +3257,7 @@ fn diagnosis_context_decision(
 
     if diagnosis_uncertain_prefix_applies(raw.field, prefix)
         || diagnosis_uncertain_suffix_applies(raw.field, suffix)
+        || diagnosis_cause_not_excluded_applies(raw.field, suffix)
     {
         return Some(diagnosis_uncertain_decision(
             "CTX_DIAGNOSIS_UNCERTAIN_ASSESSMENT",
@@ -3311,11 +3312,31 @@ fn diagnosis_prefix_has_differential_context(field: SoapField, prefix: &str) -> 
 }
 
 fn diagnosis_uncertain_prefix_applies(field: SoapField, prefix: &str) -> bool {
+    if diagnosis_query_marker_prefix_applies(field, prefix) {
+        return true;
+    }
+
     let tokens = normalized_token_strings(field, prefix);
     let Some((_, end)) = last_phrase_in_tokens(&tokens, DIAGNOSIS_UNCERTAIN_PREFIX_PHRASES) else {
-        return prefix.trim_end().ends_with('?');
+        return false;
     };
     tokens[end..].len() <= 6
+}
+
+fn diagnosis_query_marker_prefix_applies(field: SoapField, prefix: &str) -> bool {
+    let Some(question_index) = prefix.rfind('?') else {
+        return false;
+    };
+    let after_question = prefix[question_index + 1..].trim();
+    if after_question.is_empty() {
+        return true;
+    }
+    if after_question.contains(['.', '!', ';', '\n', '\r']) {
+        return false;
+    }
+
+    let tokens = normalized_token_strings(field, after_question);
+    !tokens.is_empty() && tokens.len() <= 6
 }
 
 fn diagnosis_uncertain_suffix_applies(field: SoapField, suffix: &str) -> bool {
@@ -3325,6 +3346,36 @@ fn diagnosis_uncertain_suffix_applies(field: SoapField, suffix: &str) -> bool {
 
     let tokens = normalized_token_strings(field, suffix);
     DIAGNOSIS_UNCERTAIN_SUFFIX_PHRASES.iter().any(|phrase| {
+        tokens.len() >= phrase.len()
+            && tokens[..phrase.len()]
+                .iter()
+                .map(String::as_str)
+                .eq(phrase.iter().copied())
+    })
+}
+
+fn diagnosis_cause_not_excluded_applies(field: SoapField, suffix: &str) -> bool {
+    let tokens = normalized_token_strings(field, suffix);
+    if tokens.is_empty() || tokens.len() > 8 {
+        return false;
+    }
+
+    const CAUSE_NOT_EXCLUDED_PHRASES: &[&[&str]] = &[
+        &["cause", "not", "excluded"],
+        &["causes", "not", "excluded"],
+        &["cause", "not", "ruled", "out"],
+        &["causes", "not", "ruled", "out"],
+        &["cause", "to", "exclude"],
+        &["causes", "to", "exclude"],
+        &["cause", "to", "rule", "out"],
+        &["causes", "to", "rule", "out"],
+        &["pathology", "not", "excluded"],
+        &["pathology", "not", "ruled", "out"],
+        &["pathology", "to", "exclude"],
+        &["pathology", "to", "rule", "out"],
+    ];
+
+    CAUSE_NOT_EXCLUDED_PHRASES.iter().any(|phrase| {
         tokens.len() >= phrase.len()
             && tokens[..phrase.len()]
                 .iter()

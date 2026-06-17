@@ -174,6 +174,75 @@ fn suppresses_uncertain_assessment_diagnosis_wording() {
 }
 
 #[test]
+fn suppresses_query_marker_before_modified_diagnosis_head() {
+    let extractor = diagnosis_extractor();
+
+    let response = extractor
+        .extract_diagnoses(DiagnosisExtractRequest {
+            note_id: Some("diag-query-modified-head".to_string()),
+            assessment: "?Vasovagal syncope. Bronchial asthma.".to_string(),
+            include_suppressed: true,
+            refset_id: Some(DIAGNOSIS_REFSET_ID.to_string()),
+        })
+        .unwrap();
+
+    assert!(response
+        .matches
+        .iter()
+        .any(|item| item.concept_id == "4000000001"));
+    assert!(response
+        .matches
+        .iter()
+        .all(|item| item.concept_id != "4000000006"));
+    assert!(
+        response.suppressed.iter().any(|item| {
+            item.concept_id == "4000000006"
+                && item.matched_text == "syncope"
+                && item.assertion == AssertionStatus::Uncertain
+                && item
+                    .rule_ids
+                    .contains(&"CTX_DIAGNOSIS_UNCERTAIN_ASSESSMENT".to_string())
+        }),
+        "expected query-marker suppression for modified syncope phrase; got {:?}",
+        response.suppressed
+    );
+}
+
+#[test]
+fn suppresses_cause_not_excluded_assessment_wording() {
+    let extractor = diagnosis_extractor();
+
+    let response = extractor
+        .extract_diagnoses(DiagnosisExtractRequest {
+            note_id: Some("diag-cause-not-excluded".to_string()),
+            assessment: "Cardiac asthma cause not excluded. Bronchial asthma.".to_string(),
+            include_suppressed: true,
+            refset_id: Some(DIAGNOSIS_REFSET_ID.to_string()),
+        })
+        .unwrap();
+
+    assert!(response
+        .matches
+        .iter()
+        .any(|item| item.concept_id == "4000000001"));
+    assert!(response
+        .matches
+        .iter()
+        .all(|item| item.concept_id != "4000000007"));
+    assert!(
+        response.suppressed.iter().any(|item| {
+            item.concept_id == "4000000007"
+                && item.assertion == AssertionStatus::Uncertain
+                && item
+                    .rule_ids
+                    .contains(&"CTX_DIAGNOSIS_UNCERTAIN_ASSESSMENT".to_string())
+        }),
+        "expected cause-not-excluded suppression for cardiac asthma; got {:?}",
+        response.suppressed
+    );
+}
+
+#[test]
 fn suppresses_differential_and_alternative_diagnosis_lists() {
     let extractor = diagnosis_extractor();
 

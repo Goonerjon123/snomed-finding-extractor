@@ -129,6 +129,40 @@
         }
       ],
       "aliases": []
+    },
+    {
+      "code": "4000000006",
+      "display": "Syncope",
+      "fsn": "Syncope (disorder)",
+      "active": true,
+      "system": "http://snomed.info/sct",
+      "descriptions": [
+        {
+          "descriptionId": "400000000601",
+          "term": "Syncope",
+          "type": "preferred",
+          "acceptability": "preferred",
+          "active": true
+        }
+      ],
+      "aliases": []
+    },
+    {
+      "code": "4000000007",
+      "display": "Cardiac asthma",
+      "fsn": "Cardiac asthma (disorder)",
+      "active": true,
+      "system": "http://snomed.info/sct",
+      "descriptions": [
+        {
+          "descriptionId": "400000000701",
+          "term": "Cardiac asthma",
+          "type": "preferred",
+          "acceptability": "preferred",
+          "active": true
+        }
+      ],
+      "aliases": []
     }
   ]
 }
