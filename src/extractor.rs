@@ -9,6 +9,7 @@ use crate::model::{
 use crate::normalization::{normalize_clinical_text, normalize_term, NormalizedText};
 use crate::terminology::TerminologyArtefact;
 use crate::{ENGINE_VERSION, RULESET_VERSION};
+use std::collections::HashSet;
 use std::time::Instant;
 
 #[derive(Debug, Clone)]
@@ -160,6 +161,7 @@ impl Extractor {
             }
         }
 
+        dedupe_finding_matches(&mut matches);
         matches.sort_by_key(|item| (item.field, item.span_start, item.concept_id.clone()));
         suppressed.sort_by_key(|item| (item.field, item.span_start, item.concept_id.clone()));
 
@@ -219,6 +221,19 @@ enum ExtractionKind {
     Observable,
     ExaminationFinding,
     Diagnosis,
+}
+
+fn dedupe_finding_matches(matches: &mut Vec<FindingMatch>) {
+    let mut seen = HashSet::new();
+    matches.retain(|item| {
+        seen.insert((
+            item.field,
+            item.span_start,
+            item.span_end,
+            item.concept_id.clone(),
+            item.assertion,
+        ))
+    });
 }
 
 fn materialize_non_affirmed_match(
@@ -1204,6 +1219,8 @@ fn add_anatomical_tenderness_matches(
             continue;
         }
 
+        let (concept_id, preferred_term) =
+            tenderness_concept_for_modifier_tokens(&tokens[start..head_index]);
         add_structured_exam_match_from_tokens(
             field,
             field_text,
@@ -1212,14 +1229,47 @@ fn add_anatomical_tenderness_matches(
             StructuredExamMatchSpec {
                 start_token: start,
                 end_token: head_index + 1,
-                concept_id: "301399007",
-                preferred_term: "Musculoskeletal tenderness",
+                concept_id,
+                preferred_term,
                 assertion: AssertionStatus::Affirmed,
                 value: None,
             },
             matches,
         );
     }
+}
+
+fn tenderness_concept_for_modifier_tokens(tokens: &[ExamToken]) -> (&'static str, &'static str) {
+    if tokens.iter().any(|token| token.text == "epigastric") {
+        return ("301403003", "Tenderness of epigastric region");
+    }
+    if tokens
+        .iter()
+        .any(|token| abdominal_tenderness_modifier_token(token.text.as_str()))
+    {
+        return ("43478001", "Abdominal tenderness");
+    }
+    if tokens.iter().any(|token| token.text == "breast") {
+        return ("55222007", "Tenderness of breast");
+    }
+    if tokens
+        .iter()
+        .any(|token| matches!(token.text.as_str(), "genital" | "testicle" | "testis"))
+    {
+        return ("301394002", "Genitourinary tenderness");
+    }
+    if tokens.iter().any(|token| token.text == "renal") {
+        return ("102830001", "Renal angle tenderness");
+    }
+
+    ("301399007", "Musculoskeletal tenderness")
+}
+
+fn abdominal_tenderness_modifier_token(token: &str) -> bool {
+    matches!(
+        token,
+        "abdomen" | "abdominal" | "fossa" | "iliac" | "quadrant"
+    )
 }
 
 fn add_muscle_weakness_matches(
@@ -1775,6 +1825,8 @@ fn anatomical_exam_modifier_token(token: &str) -> bool {
     matches!(
         token,
         "abdominal"
+            | "abdomen"
+            | "angle"
             | "ankle"
             | "arm"
             | "back"
@@ -1792,12 +1844,15 @@ fn anatomical_exam_modifier_token(token: &str) -> bool {
             | "iliac"
             | "joint"
             | "knee"
+            | "left"
+            | "lower"
             | "lumbar"
             | "mastoid"
             | "muscle"
             | "neck"
             | "paraspinal"
             | "renal"
+            | "right"
             | "sacroiliac"
             | "scalp"
             | "skeletal"
@@ -1808,6 +1863,8 @@ fn anatomical_exam_modifier_token(token: &str) -> bool {
             | "testicle"
             | "testis"
             | "thoracic"
+            | "upper"
+            | "quadrant"
             | "wrist"
     )
 }

@@ -420,6 +420,56 @@ fn examination_findings_include_common_status_lists_and_named_tests() {
 }
 
 #[test]
+fn examination_findings_do_not_map_abdominal_tenderness_to_musculoskeletal() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("fixtures")
+        .join("synthetic-examination-findings.openehr-valueset.json");
+    let artefact = build_from_openehr_valueset(path).unwrap();
+    let extractor = Extractor::new(artefact).unwrap();
+
+    let response = extractor
+        .extract_examination_findings(ExaminationFindingsExtractRequest {
+            note_id: Some("exam-9".to_string()),
+            objective:
+                "Abdo soft, mild epigastric tenderness. RUQ tenderness. Paraspinal tenderness."
+                    .to_string(),
+            include_suppressed: true,
+            refset_id: Some("932266131000001101".to_string()),
+        })
+        .unwrap();
+
+    let matches = response
+        .matches
+        .iter()
+        .map(|item| {
+            (
+                item.concept_id.as_str(),
+                item.preferred_term.as_str(),
+                item.matched_text.as_str(),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert!(matches.contains(&(
+        "301403003",
+        "Tenderness of epigastric region",
+        "epigastric tenderness",
+    )));
+    assert!(matches.contains(&("43478001", "Abdominal tenderness", "RUQ tenderness")));
+    assert!(matches.contains(&(
+        "301399007",
+        "Musculoskeletal tenderness",
+        "Paraspinal tenderness",
+    )));
+    assert!(!matches.contains(&(
+        "301399007",
+        "Musculoskeletal tenderness",
+        "epigastric tenderness",
+    )));
+    assert!(!matches.contains(&("301399007", "Musculoskeletal tenderness", "RUQ tenderness",)));
+}
+
+#[test]
 fn examination_findings_suppress_bare_normal_and_wrong_site_false_positives() {
     let artefact = TerminologyArtefact {
         schema_version: 1,

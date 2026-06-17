@@ -920,6 +920,19 @@ fn diabetes_type_label(type_code: &str) -> Option<&'static str> {
 
 fn morphology_variants(term: &str) -> Vec<String> {
     let normalized = normalize_term(term);
+    if let Some(body_site) = normalized.strip_prefix("tenderness of ") {
+        let body_site = body_site.trim();
+        if !body_site.is_empty() {
+            let mut variants = vec![format!("{body_site} tenderness")];
+            if let Some(body_site_without_region) = body_site.strip_suffix(" region") {
+                variants.push(format!("{} tenderness", body_site_without_region.trim()));
+            }
+            if body_site == "epigastrium" {
+                variants.push("epigastric tenderness".to_string());
+            }
+            return variants;
+        }
+    }
     if let Some(body_site) = normalized.strip_prefix("swelling of ") {
         let body_site = body_site.trim();
         let mut variants = vec![
@@ -2404,6 +2417,14 @@ mod tests {
 
         let calf = derive_description_variants("Swollen calf");
         assert!(calf.iter().any(|variant| variant.term == "calf swollen"));
+
+        let epigastric_tenderness = derive_description_variants("Tenderness of epigastric region");
+        assert!(epigastric_tenderness
+            .iter()
+            .any(|variant| variant.term == "epigastric region tenderness"));
+        assert!(epigastric_tenderness
+            .iter()
+            .any(|variant| variant.term == "epigastric tenderness"));
 
         let scleral = derive_description_variants("Scleral injection");
         assert!(scleral
