@@ -695,6 +695,90 @@ fn abdominal_shorthand_heading_supplies_body_site_for_general_tenderness() {
 }
 
 #[test]
+fn body_site_heading_does_not_leak_to_psychosocial_findings() {
+    let extractor = extractor_with_body_sites(
+        vec![
+            concept("15188001", "Hearing loss", &["hearing loss"]),
+            concept("60862001", "Tinnitus", &["tinnitus"]),
+            concept("48694002", "Anxiety", &["anxious", "anxiety"]),
+        ],
+        vec![concept("117590005", "Ear structure", &["ear"])],
+    );
+
+    let response = extractor
+        .extract(ExtractRequest {
+            history: "L ear - fluctuating hearing loss + roaring tinnitus on that side, worse during attacks. Off work, anxious, not driving.".to_string(),
+            include_suppressed: true,
+            ..ExtractRequest::default()
+        })
+        .unwrap();
+
+    for concept_id in ["15188001", "60862001"] {
+        let item = response
+            .matches
+            .iter()
+            .find(|item| item.concept_id == concept_id)
+            .unwrap_or_else(|| panic!("expected site-compatible finding {concept_id}"));
+        assert_eq!(
+            item.body_site
+                .as_ref()
+                .map(|site| (site.concept_id.as_str(), site.matched_text.as_str())),
+            Some(("117590005", "ear"))
+        );
+    }
+
+    let anxiety = response
+        .matches
+        .iter()
+        .find(|item| item.concept_id == "48694002")
+        .expect("anxiety match");
+    assert!(anxiety.body_site.is_none());
+}
+
+#[test]
+fn descriptive_area_and_topic_context_supply_breast_body_site() {
+    let extractor = extractor_with_body_sites(
+        vec![
+            concept("22253000", "Pain", &["painful"]),
+            concept("247441003", "Erythema", &["red"]),
+            concept("300848003", "Mass of body structure", &["lump"]),
+        ],
+        vec![concept("76752008", "Breast structure", &["breast"])],
+    );
+
+    let response = extractor
+        .extract(ExtractRequest {
+            objective: "Painful R breast. Red, hot, hard wedge-shaped area in the outer breast. Noticed a blocked-duct lump just before this came on.".to_string(),
+            include_suppressed: true,
+            ..ExtractRequest::default()
+        })
+        .unwrap();
+
+    for (concept_id, matched_text) in [
+        ("22253000", "Painful"),
+        ("247441003", "Red"),
+        ("300848003", "lump"),
+    ] {
+        let item = response
+            .matches
+            .iter()
+            .find(|item| item.concept_id == concept_id && item.matched_text == matched_text)
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected {concept_id} matched as {matched_text}; got {:?}",
+                    response.matches
+                )
+            });
+        assert_eq!(
+            item.body_site.as_ref().map(|site| site.concept_id.as_str()),
+            Some("76752008")
+        );
+    }
+
+    assert!(response.suppressed.is_empty());
+}
+
+#[test]
 fn normal_exam_status_suppresses_bare_vision_impairment_finding() {
     let extractor = Extractor::new(TerminologyArtefact {
         schema_version: 1,

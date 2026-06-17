@@ -700,6 +700,109 @@ fn examination_findings_include_contextual_objective_exam_patterns() {
     }));
 }
 
+#[test]
+fn examination_findings_include_common_vestibular_neuro_exam_statuses() {
+    let extractor = Extractor::new(TerminologyArtefact {
+        schema_version: 1,
+        terminology_version: "test".to_string(),
+        source_release: "test".to_string(),
+        refset_id: "test-refset".to_string(),
+        generated_at_utc: "test".to_string(),
+        concepts: vec![concept(
+            "999999001",
+            "Unused fixture concept",
+            &["zzzdummy"],
+        )],
+        artefact_hash: String::new(),
+    })
+    .unwrap();
+
+    let response = extractor
+        .extract_examination_findings(ExaminationFindingsExtractRequest {
+            note_id: Some("exam-vestibular-neuro".to_string()),
+            objective: "Gait steady today, Romberg negative. Finger-nose + heel-shin normal. Pulse regular, no postural drop.".to_string(),
+            include_suppressed: true,
+            refset_id: None,
+        })
+        .unwrap();
+
+    let matches = response
+        .matches
+        .iter()
+        .map(|item| {
+            (
+                item.concept_id.as_str(),
+                item.preferred_term.as_str(),
+                item.matched_text.as_str(),
+                item.assertion,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    for expected in [
+        ("63448001", "Gait", "Gait steady", AssertionStatus::Normal),
+        (
+            "373676004",
+            "Romberg sign",
+            "Romberg negative",
+            AssertionStatus::Negated,
+        ),
+        (
+            "363844006",
+            "Pattern of coordination",
+            "Finger-nose + heel-shin normal",
+            AssertionStatus::Normal,
+        ),
+        (
+            "28651003",
+            "Orthostatic hypotension",
+            "no postural drop",
+            AssertionStatus::Negated,
+        ),
+    ] {
+        assert!(
+            matches.contains(&expected),
+            "expected structured exam match {expected:?}; got {matches:?}"
+        );
+    }
+}
+
+#[test]
+fn breast_symptom_text_does_not_create_chest_auscultation_exam() {
+    let extractor = Extractor::new(TerminologyArtefact {
+        schema_version: 1,
+        terminology_version: "test".to_string(),
+        source_release: "test".to_string(),
+        refset_id: "test-refset".to_string(),
+        generated_at_utc: "test".to_string(),
+        concepts: vec![
+            concept("247441003", "Erythema", &["red", "red hot"]),
+            concept("999999001", "Unused fixture concept", &["zzzdummy"]),
+        ],
+        artefact_hash: String::new(),
+    })
+    .unwrap();
+
+    let response = extractor
+        .extract_examination_findings(ExaminationFindingsExtractRequest {
+            note_id: Some("exam-breast-no-chest".to_string()),
+            objective: "Painful R breast, breastfeeding a 6-wk-old. Red, hot, hard wedge-shaped area in the outer breast. Baby feeding ok.".to_string(),
+            include_suppressed: true,
+            refset_id: None,
+        })
+        .unwrap();
+
+    assert!(!response
+        .matches
+        .iter()
+        .any(|item| item.preferred_term == "Chest auscultation feature"));
+    assert!(response.matches.iter().any(|item| {
+        item.concept_id == "290070001"
+            && item.preferred_term == "Red breast"
+            && item.assertion == AssertionStatus::Affirmed
+    }));
+}
+
 fn concept(concept_id: &str, preferred_term: &str, variants: &[&str]) -> ConceptEntry {
     ConceptEntry {
         concept_id: concept_id.to_string(),

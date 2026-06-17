@@ -431,3 +431,31 @@ fn suppresses_peripheral_vascular_exam_observable_false_positives() {
                 .contains(&"CTX_OBSERVABLE_AUDIOLOGY_ACRONYM_IN_LIGAMENT_CONTEXT".to_string())
     }));
 }
+
+#[test]
+fn suppresses_procedure_labels_in_observable_extraction() {
+    let extractor = observable_extractor_with(vec![observable_concept(
+        "76517002",
+        "Endoscopy of ear",
+        &[("Otoscopy", false)],
+    )]);
+
+    let response = extractor
+        .extract_observables(ObservableExtractRequest {
+            objective: "Otoscopy - both TMs normal.".to_string(),
+            include_suppressed: true,
+            refset_id: Some("fixture-observables".to_string()),
+            ..ObservableExtractRequest::default()
+        })
+        .unwrap();
+
+    assert!(response.matches.is_empty());
+    assert!(response.suppressed.iter().any(|item| {
+        item.concept_id == "76517002"
+            && item.matched_text == "Otoscopy"
+            && item.assertion == AssertionStatus::Ambiguous
+            && item
+                .rule_ids
+                .contains(&"CTX_OBSERVABLE_PROCEDURE_LABEL".to_string())
+    }));
+}

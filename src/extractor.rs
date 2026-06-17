@@ -132,7 +132,7 @@ impl Extractor {
                     .enumerate()
                     .filter_map(|(other, span)| (other != index).then_some(*span))
                     .collect::<Vec<_>>();
-                let decision = semantic_context_decision(&raw, text, extraction_kind)
+                let decision = semantic_context_decision(&raw, text, extraction_kind, &siblings)
                     .unwrap_or_else(|| {
                         classify_assertion(field, text, raw.span_start, raw.span_end, &siblings)
                     });
@@ -213,7 +213,12 @@ impl Extractor {
         body_site_matches: &[RawMatch],
     ) -> Option<BodySiteMatch> {
         let body_site_matcher = self.body_site_matcher.as_ref()?;
-        if symptom_already_implies_body_site(raw, body_site_matcher) {
+        if symptom_already_implies_body_site(raw, body_site_matcher)
+            && !site_dependent_broad_finding(raw)
+        {
+            return None;
+        }
+        if !finding_can_use_body_site(raw) {
             return None;
         }
 
@@ -326,6 +331,17 @@ const STATUS_NORMAL: &[ExamResultStatus] = &[ExamResultStatus {
     phrase: "normal",
     assertion: AssertionStatus::Normal,
 }];
+
+const STATUS_STEADY_OR_NORMAL: &[ExamResultStatus] = &[
+    ExamResultStatus {
+        phrase: "steady",
+        assertion: AssertionStatus::Normal,
+    },
+    ExamResultStatus {
+        phrase: "normal",
+        assertion: AssertionStatus::Normal,
+    },
+];
 
 const STATUS_CLEAR: &[ExamResultStatus] = &[ExamResultStatus {
     phrase: "clear",
@@ -675,7 +691,13 @@ const STRUCTURED_EXAM_FEATURES: &[StructuredExamFeature] = &[
     StructuredExamFeature {
         concept_id: "363844006",
         preferred_term: "Pattern of coordination",
-        subjects: &["coordination"],
+        subjects: &[
+            "coordination",
+            "finger nose",
+            "finger to nose",
+            "heel shin",
+            "heel to shin",
+        ],
         statuses_after: STATUS_NORMAL,
         statuses_before: &[],
     },
@@ -683,7 +705,7 @@ const STRUCTURED_EXAM_FEATURES: &[StructuredExamFeature] = &[
         concept_id: "63448001",
         preferred_term: "Gait",
         subjects: &["gait"],
-        statuses_after: STATUS_NORMAL,
+        statuses_after: STATUS_STEADY_OR_NORMAL,
         statuses_before: &[],
     },
     StructuredExamFeature {
@@ -823,6 +845,13 @@ const NAMED_EXAM_TEST_FEATURES: &[NamedExamTestFeature] = &[
         statuses_after: STATUS_NEGATIVE,
         statuses_before: STATUS_NEGATIVE,
     },
+    NamedExamTestFeature {
+        concept_id: "373676004",
+        preferred_term: "Romberg sign",
+        subjects: &["romberg", "romberg sign"],
+        statuses_after: STATUS_POSITIVE_OR_NEGATIVE,
+        statuses_before: STATUS_POSITIVE_OR_NEGATIVE,
+    },
 ];
 
 const NEGATED_EXAM_SIGNS: &[NegatedExamSign] = &[
@@ -899,6 +928,7 @@ fn add_normal_examination_matches(
     add_grip_limited_by_pain_matches(field, field_text, &normalized, &tokens, matches);
     add_capillary_refill_threshold_matches(field, field_text, &normalized, &tokens, matches);
     add_antalgic_gait_matches(field, field_text, &normalized, &tokens, matches);
+    add_postural_drop_matches(field, field_text, &normalized, &tokens, matches);
     add_breast_lump_matches(field, field_text, &normalized, &tokens, matches);
 }
 
@@ -1680,24 +1710,47 @@ fn add_anatomical_surface_sign_matches(
             continue;
         }
 
-        let Some(start) = surface_sign_context_start(tokens, head_index, field_text) else {
+        if let Some(start) = surface_sign_context_start(tokens, head_index, field_text) {
+            add_structured_exam_match_from_tokens(
+                field,
+                field_text,
+                normalized,
+                tokens,
+                StructuredExamMatchSpec {
+                    start_token: start,
+                    end_token: head_index + 1,
+                    concept_id,
+                    preferred_term,
+                    assertion: AssertionStatus::Affirmed,
+                    value: None,
+                },
+                matches,
+            );
             continue;
-        };
-        add_structured_exam_match_from_tokens(
-            field,
-            field_text,
-            normalized,
-            tokens,
-            StructuredExamMatchSpec {
-                start_token: start,
-                end_token: head_index + 1,
+        }
+
+        if let Some(end) = surface_sign_context_end(tokens, head_index, field_text) {
+            let (concept_id, preferred_term) = surface_sign_concept_for_context(
                 concept_id,
                 preferred_term,
-                assertion: AssertionStatus::Affirmed,
-                value: None,
-            },
-            matches,
-        );
+                &tokens[head_index..end],
+            );
+            add_structured_exam_match_from_tokens(
+                field,
+                field_text,
+                normalized,
+                tokens,
+                StructuredExamMatchSpec {
+                    start_token: head_index,
+                    end_token: end,
+                    concept_id,
+                    preferred_term,
+                    assertion: AssertionStatus::Affirmed,
+                    value: None,
+                },
+                matches,
+            );
+        };
     }
 }
 
@@ -1737,6 +1790,73 @@ fn surface_sign_context_token(token: &str) -> bool {
             token,
             "and" | "plus" | "congested" | "mucosa" | "mucosal" | "skin"
         )
+}
+
+fn surface_sign_context_end(
+    tokens: &[ExamToken],
+    head_index: usize,
+    field_text: &str,
+) -> Option<usize> {
+    let upper = (head_index + 11).min(tokens.len());
+    let mut end = head_index + 1;
+    let mut saw_site = false;
+    while end < upper
+        && !exam_phrase_boundary_except_hyphen_between(
+            field_text,
+            tokens[end - 1].orig_end,
+            tokens[end].orig_start,
+        )
+        && surface_sign_following_context_token(tokens[end].text.as_str())
+    {
+        if anatomical_exam_modifier_token(tokens[end].text.as_str()) {
+            saw_site = true;
+        }
+        end += 1;
+    }
+
+    if saw_site && end > head_index + 1 {
+        Some(end)
+    } else {
+        None
+    }
+}
+
+fn surface_sign_following_context_token(token: &str) -> bool {
+    surface_sign_context_token(token)
+        || matches!(
+            token,
+            "a" | "an"
+                | "area"
+                | "areas"
+                | "hard"
+                | "hot"
+                | "in"
+                | "of"
+                | "outer"
+                | "patch"
+                | "patches"
+                | "red"
+                | "shaped"
+                | "the"
+                | "warm"
+                | "wedge"
+        )
+}
+
+fn surface_sign_concept_for_context(
+    concept_id: &'static str,
+    preferred_term: &'static str,
+    tokens: &[ExamToken],
+) -> (&'static str, &'static str) {
+    if concept_id == "247441003"
+        && tokens
+            .iter()
+            .any(|token| matches!(token.text.as_str(), "breast" | "breasts"))
+    {
+        return ("290070001", "Red breast");
+    }
+
+    (concept_id, preferred_term)
 }
 
 fn add_contextual_discharge_matches(
@@ -2200,6 +2320,59 @@ fn add_antalgic_gait_matches(
     }
 }
 
+fn add_postural_drop_matches(
+    field: SoapField,
+    field_text: &str,
+    normalized: &NormalizedText,
+    tokens: &[ExamToken],
+    matches: &mut Vec<FindingMatch>,
+) {
+    for subject_start in 0..tokens.len() {
+        let Some(subject_end) = match_any_phrase_at(
+            tokens,
+            subject_start,
+            &[
+                "postural drop",
+                "postural hypotension",
+                "orthostatic hypotension",
+            ],
+        ) else {
+            continue;
+        };
+
+        let assertion = if preceding_negation_token(tokens, subject_start, 4) {
+            AssertionStatus::Negated
+        } else {
+            AssertionStatus::Affirmed
+        };
+        let start = if assertion == AssertionStatus::Negated && subject_start > 0 {
+            let lower = subject_start.saturating_sub(4);
+            (lower..subject_start)
+                .rev()
+                .find(|index| exam_negation_token(tokens[*index].text.as_str()))
+                .unwrap_or(subject_start)
+        } else {
+            subject_start
+        };
+
+        add_structured_exam_match_from_tokens(
+            field,
+            field_text,
+            normalized,
+            tokens,
+            StructuredExamMatchSpec {
+                start_token: start,
+                end_token: subject_end,
+                concept_id: "28651003",
+                preferred_term: "Orthostatic hypotension",
+                assertion,
+                value: None,
+            },
+            matches,
+        );
+    }
+}
+
 fn add_breast_lump_matches(
     field: SoapField,
     field_text: &str,
@@ -2283,14 +2456,9 @@ fn add_structured_exam_match_from_tokens(
     }
     matches.retain(|item| {
         !(item.field == field
-            && item.concept_id == concept_id
-            && !item
-                .term_source
-                .starts_with("built-in-structured-exam-feature")
-            && span_start <= item.span_start
-            && span_end >= item.span_end
-            && ((span_start, span_end) != (item.span_start, item.span_end)
-                || assertion != AssertionStatus::Affirmed))
+            && structured_exam_match_replaces_raw(
+                item, concept_id, span_start, span_end, assertion,
+            ))
     });
 
     let normalized_start = tokens[start_token].normalized_start;
@@ -2323,14 +2491,8 @@ fn should_add_structured_exam_match(
     assertion: AssertionStatus,
 ) -> bool {
     !matches.iter().any(|item| {
-        let structured_replaces_raw = item.concept_id == concept_id
-            && !item
-                .term_source
-                .starts_with("built-in-structured-exam-feature")
-            && span_start <= item.span_start
-            && span_end >= item.span_end
-            && ((span_start, span_end) != (item.span_start, item.span_end)
-                || assertion != AssertionStatus::Affirmed);
+        let structured_replaces_raw =
+            structured_exam_match_replaces_raw(item, concept_id, span_start, span_end, assertion);
         item.field == field
             && ((item.concept_id == concept_id
                 && spans_overlap(span_start, span_end, item.span_start, item.span_end)
@@ -2341,6 +2503,33 @@ fn should_add_structured_exam_match(
                     && spans_overlap(span_start, span_end, item.span_start, item.span_end)
                     && !structured_replaces_raw))
     })
+}
+
+fn structured_exam_match_replaces_raw(
+    existing: &FindingMatch,
+    concept_id: &str,
+    span_start: usize,
+    span_end: usize,
+    assertion: AssertionStatus,
+) -> bool {
+    if existing
+        .term_source
+        .starts_with("built-in-structured-exam-feature")
+        || span_start > existing.span_start
+        || span_end < existing.span_end
+    {
+        return false;
+    }
+
+    let same_concept_more_specific_span = existing.concept_id == concept_id
+        && ((span_start, span_end) != (existing.span_start, existing.span_end)
+            || assertion != AssertionStatus::Affirmed);
+    let structured_specific_concept = matches!(
+        (concept_id, existing.concept_id.as_str()),
+        ("290070001", "247441003")
+    );
+
+    same_concept_more_specific_span || structured_specific_concept
 }
 
 fn structured_exam_rule_id(assertion: AssertionStatus) -> &'static str {
@@ -2586,7 +2775,9 @@ fn structured_exam_status_bridge_token(token: &str) -> bool {
             | "brachioradialis"
             | "coordination"
             | "dp"
+            | "finger"
             | "gait"
+            | "heel"
             | "hoffman"
             | "hoffmann"
             | "kernig"
@@ -2601,6 +2792,7 @@ fn structured_exam_status_bridge_token(token: &str) -> bool {
             | "pt"
             | "reflex"
             | "reflexes"
+            | "shin"
             | "range"
             | "movement"
             | "slight"
@@ -2609,6 +2801,8 @@ fn structured_exam_status_bridge_token(token: &str) -> bool {
             | "sensation"
             | "slr"
             | "straight"
+            | "nose"
+            | "to"
             | "leg"
             | "raise"
             | "raising"
@@ -2840,9 +3034,16 @@ fn semantic_context_decision(
     raw: &RawMatch,
     field_text: &str,
     extraction_kind: ExtractionKind,
+    sibling_spans: &[(usize, usize)],
 ) -> Option<crate::context::AssertionDecision> {
     if matches!(extraction_kind, ExtractionKind::Observable) {
         if let Some(decision) = observable_context_decision(raw, field_text) {
+            return Some(decision);
+        }
+    }
+
+    if matches!(extraction_kind, ExtractionKind::Diagnosis) {
+        if let Some(decision) = diagnosis_context_decision(raw, field_text, sibling_spans) {
             return Some(decision);
         }
     }
@@ -2968,6 +3169,276 @@ fn semantic_context_decision(
     None
 }
 
+const DIAGNOSIS_DIFFERENTIAL_PHRASES: &[&[&str]] = &[
+    &["ddx"],
+    &["differential"],
+    &["differentials"],
+    &["differential", "diagnosis"],
+    &["differential", "diagnoses"],
+    &["d", "d", "x"],
+];
+
+const DIAGNOSIS_UNCERTAIN_PREFIX_PHRASES: &[&[&str]] = &[
+    &["possible"],
+    &["possibly"],
+    &["probable"],
+    &["probably"],
+    &["likely"],
+    &["suspected"],
+    &["suspect"],
+    &["suspicion", "of"],
+    &["query"],
+    &["queried"],
+    &["question"],
+    &["question", "of"],
+    &["rule", "out"],
+    &["r", "o"],
+    &["exclude"],
+    &["cannot", "rule", "out"],
+    &["can", "not", "rule", "out"],
+    &["working", "diagnosis"],
+    &["working", "dx"],
+    &["provisional", "diagnosis"],
+    &["provisional", "dx"],
+    &["treat", "as"],
+    &["treated", "as"],
+    &["treating", "as"],
+    &["manage", "as"],
+    &["managed", "as"],
+    &["cover", "for"],
+    &["covering", "for"],
+    &["empirical", "treatment", "for"],
+    &["empiric", "treatment", "for"],
+    &["consistent", "with"],
+    &["c", "w"],
+    &["in", "keeping", "with"],
+    &["suggestive", "of"],
+    &["could", "be"],
+    &["may", "be"],
+    &["might", "be"],
+    &["not", "sure"],
+    &["unclear"],
+    &["uncertain"],
+];
+
+const DIAGNOSIS_UNCERTAIN_SUFFIX_PHRASES: &[&[&str]] = &[
+    &["likely"],
+    &["possible"],
+    &["probable"],
+    &["suspected"],
+    &["unclear"],
+    &["uncertain"],
+    &["not", "excluded"],
+    &["not", "ruled", "out"],
+    &["to", "exclude"],
+    &["to", "rule", "out"],
+];
+
+fn diagnosis_context_decision(
+    raw: &RawMatch,
+    field_text: &str,
+    sibling_spans: &[(usize, usize)],
+) -> Option<crate::context::AssertionDecision> {
+    if raw.field != SoapField::Assessment {
+        return None;
+    }
+
+    let (clause_start, clause_end) =
+        diagnosis_clause_bounds(field_text, raw.span_start, raw.span_end);
+    let prefix = field_text.get(clause_start..raw.span_start).unwrap_or("");
+    let suffix = field_text.get(raw.span_end..clause_end).unwrap_or("");
+
+    if diagnosis_prefix_has_differential_context(raw.field, prefix) {
+        return Some(diagnosis_uncertain_decision(
+            "CTX_DIAGNOSIS_DIFFERENTIAL_ASSESSMENT",
+            "Suppressed: the assessment wording frames this disorder as a differential diagnosis rather than an asserted diagnosis.",
+        ));
+    }
+
+    if diagnosis_uncertain_prefix_applies(raw.field, prefix)
+        || diagnosis_uncertain_suffix_applies(raw.field, suffix)
+    {
+        return Some(diagnosis_uncertain_decision(
+            "CTX_DIAGNOSIS_UNCERTAIN_ASSESSMENT",
+            "Suppressed: the assessment wording carries diagnostic uncertainty.",
+        ));
+    }
+
+    if diagnosis_alternative_context_applies(
+        raw,
+        field_text,
+        sibling_spans,
+        clause_start,
+        clause_end,
+        prefix,
+    ) {
+        return Some(diagnosis_uncertain_decision(
+            "CTX_DIAGNOSIS_ALTERNATIVE_ASSESSMENT",
+            "Suppressed: the assessment wording presents this disorder as one option in an alternative diagnosis list.",
+        ));
+    }
+
+    None
+}
+
+fn diagnosis_uncertain_decision(
+    rule_id: &str,
+    explanation: &str,
+) -> crate::context::AssertionDecision {
+    crate::context::AssertionDecision {
+        accepted: false,
+        assertion: AssertionStatus::Uncertain,
+        rule_ids: vec![rule_id.to_string()],
+        explanation: explanation.to_string(),
+    }
+}
+
+fn diagnosis_clause_bounds(text: &str, span_start: usize, span_end: usize) -> (usize, usize) {
+    let start = text[..span_start]
+        .rfind(['.', '!', ';', '\n', '\r'])
+        .map(|idx| idx + 1)
+        .unwrap_or(0);
+    let end = text[span_end..]
+        .find(['.', '!', ';', '\n', '\r'])
+        .map(|idx| span_end + idx)
+        .unwrap_or(text.len());
+    (start, end)
+}
+
+fn diagnosis_prefix_has_differential_context(field: SoapField, prefix: &str) -> bool {
+    let tokens = normalized_token_strings(field, prefix);
+    phrase_appears_in_tokens(&tokens, DIAGNOSIS_DIFFERENTIAL_PHRASES)
+}
+
+fn diagnosis_uncertain_prefix_applies(field: SoapField, prefix: &str) -> bool {
+    let tokens = normalized_token_strings(field, prefix);
+    let Some((_, end)) = last_phrase_in_tokens(&tokens, DIAGNOSIS_UNCERTAIN_PREFIX_PHRASES) else {
+        return prefix.trim_end().ends_with('?');
+    };
+    tokens[end..].len() <= 6
+}
+
+fn diagnosis_uncertain_suffix_applies(field: SoapField, suffix: &str) -> bool {
+    if suffix.trim_start().starts_with('?') {
+        return true;
+    }
+
+    let tokens = normalized_token_strings(field, suffix);
+    DIAGNOSIS_UNCERTAIN_SUFFIX_PHRASES.iter().any(|phrase| {
+        tokens.len() >= phrase.len()
+            && tokens[..phrase.len()]
+                .iter()
+                .map(String::as_str)
+                .eq(phrase.iter().copied())
+    })
+}
+
+fn diagnosis_alternative_context_applies(
+    raw: &RawMatch,
+    field_text: &str,
+    sibling_spans: &[(usize, usize)],
+    clause_start: usize,
+    clause_end: usize,
+    prefix: &str,
+) -> bool {
+    if diagnosis_prefix_has_negation(raw.field, prefix) {
+        return false;
+    }
+
+    sibling_spans.iter().any(|(sibling_start, sibling_end)| {
+        if *sibling_end <= clause_start || *sibling_start >= clause_end {
+            return false;
+        }
+        let gap = if *sibling_end <= raw.span_start {
+            field_text.get(*sibling_end..raw.span_start)
+        } else if raw.span_end <= *sibling_start {
+            field_text.get(raw.span_end..*sibling_start)
+        } else {
+            None
+        };
+        gap.map(|gap| diagnosis_alternative_gap(raw.field, gap))
+            .unwrap_or(false)
+    })
+}
+
+fn diagnosis_prefix_has_negation(field: SoapField, prefix: &str) -> bool {
+    normalized_token_strings(field, prefix)
+        .into_iter()
+        .any(|token| {
+            matches!(
+                token.as_str(),
+                "no" | "not" | "without" | "denies" | "denied"
+            )
+        })
+}
+
+fn diagnosis_alternative_gap(field: SoapField, gap: &str) -> bool {
+    if gap.len() > 48 {
+        return false;
+    }
+    if gap.contains('/') || gap.contains('\\') {
+        return true;
+    }
+
+    let tokens = normalized_token_strings(field, gap);
+    if tokens.is_empty() || tokens.len() > 5 {
+        return false;
+    }
+
+    let has_alternative = tokens
+        .iter()
+        .any(|token| matches!(token.as_str(), "or" | "vs" | "v" | "versus"));
+    has_alternative
+        && tokens
+            .iter()
+            .all(|token| diagnosis_alternative_gap_token(token.as_str()))
+}
+
+fn diagnosis_alternative_gap_token(token: &str) -> bool {
+    matches!(
+        token,
+        "or" | "vs" | "v" | "versus" | "query" | "q" | "possible" | "probable" | "likely"
+    )
+}
+
+fn normalized_token_strings(field: SoapField, value: &str) -> Vec<String> {
+    normalize_clinical_text(value, field)
+        .text
+        .split(' ')
+        .filter(|token| !token.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+fn phrase_appears_in_tokens(tokens: &[String], phrases: &[&[&str]]) -> bool {
+    last_phrase_in_tokens(tokens, phrases).is_some()
+}
+
+fn last_phrase_in_tokens(tokens: &[String], phrases: &[&[&str]]) -> Option<(usize, usize)> {
+    let mut last = None;
+    for phrase in phrases {
+        if phrase.is_empty() || phrase.len() > tokens.len() {
+            continue;
+        }
+        for start in 0..=(tokens.len() - phrase.len()) {
+            let matched = phrase
+                .iter()
+                .enumerate()
+                .all(|(offset, word)| tokens[start + offset] == *word);
+            if matched {
+                let end = start + phrase.len();
+                if last
+                    .map(|(_, previous_end)| end > previous_end)
+                    .unwrap_or(true)
+                {
+                    last = Some((start, end));
+                }
+            }
+        }
+    }
+    last
+}
+
 fn observable_context_decision(
     raw: &RawMatch,
     field_text: &str,
@@ -3002,6 +3473,13 @@ fn observable_context_decision(
         return Some(observable_ambiguous_decision(
             "CTX_OBSERVABLE_AUDIOLOGY_ACRONYM_IN_LIGAMENT_CONTEXT",
             "Suppressed: MCL appears in musculoskeletal ligament examination context, not as most comfortable listening level.",
+        ));
+    }
+
+    if is_procedure_like_observable(raw) && raw.value.is_none() {
+        return Some(observable_ambiguous_decision(
+            "CTX_OBSERVABLE_PROCEDURE_LABEL",
+            "Suppressed: procedure or examination labels are not measured observable values.",
         ));
     }
 
@@ -3066,6 +3544,17 @@ fn looks_like_laterality_score_value(raw: &RawMatch) -> bool {
 fn is_most_comfortable_listening_level_acronym(raw: &RawMatch) -> bool {
     normalize_term(&raw.preferred_term) == "most comfortable listening level"
         && raw.normalized_match == "mcl"
+}
+
+fn is_procedure_like_observable(raw: &RawMatch) -> bool {
+    let preferred = normalize_term(&raw.preferred_term);
+    preferred.contains("endoscopy")
+        || preferred.contains("examination")
+        || preferred.contains("procedure")
+        || matches!(
+            raw.normalized_match.as_str(),
+            "otoscopy" | "fundoscopy" | "ophthalmoscopy" | "endoscopy"
+        )
 }
 
 fn has_musculoskeletal_ligament_context(raw: &RawMatch, field_text: &str) -> bool {
@@ -3247,6 +3736,7 @@ fn post_status_sensitive_exam_concept(concept_id: &str) -> bool {
             | "39051003"
             | "82345001"
             | "67672003"
+            | "373676004"
     )
 }
 
@@ -3670,6 +4160,62 @@ fn site_dependent_broad_finding(raw: &RawMatch) -> bool {
     )
 }
 
+fn finding_can_use_body_site(raw: &RawMatch) -> bool {
+    if site_dependent_broad_finding(raw) {
+        return true;
+    }
+
+    [raw.preferred_term.as_str(), raw.normalized_match.as_str()]
+        .iter()
+        .flat_map(|text| {
+            normalize_term(text)
+                .split(' ')
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .any(|token| site_compatible_finding_token(token.as_str()))
+}
+
+fn site_compatible_finding_token(token: &str) -> bool {
+    matches!(
+        token,
+        "ache"
+            | "abscess"
+            | "bleeding"
+            | "discharge"
+            | "earache"
+            | "edema"
+            | "effusion"
+            | "erythema"
+            | "hearing"
+            | "hot"
+            | "itch"
+            | "itching"
+            | "lesion"
+            | "lump"
+            | "mass"
+            | "numbness"
+            | "oedema"
+            | "pain"
+            | "painful"
+            | "rash"
+            | "red"
+            | "redness"
+            | "stiffness"
+            | "swelling"
+            | "tender"
+            | "tenderness"
+            | "tinnitus"
+            | "ulcer"
+            | "visual"
+            | "vision"
+            | "warm"
+            | "warmth"
+            | "weakness"
+            | "wound"
+    )
+}
+
 fn symptom_already_implies_body_site(
     raw: &RawMatch,
     body_site_matcher: &TerminologyMatcher,
@@ -3720,7 +4266,7 @@ fn body_site_association_score(
         .filter(|token| !token.is_empty())
         .map(str::to_string)
         .collect::<Vec<_>>();
-    if gap_tokens.len() > 4
+    if gap_tokens.len() > 8
         || gap_tokens
             .iter()
             .any(|token| !allowed_body_site_gap_token(token))
@@ -3729,7 +4275,7 @@ fn body_site_association_score(
     }
 
     let char_gap = gap_end.saturating_sub(gap_start);
-    if char_gap > 48 {
+    if char_gap > 72 {
         return None;
     }
 
@@ -3806,6 +4352,7 @@ fn musculoskeletal_topic_body_site(site: &RawMatch) -> bool {
                     "ankle"
                         | "arm"
                         | "back"
+                        | "breast"
                         | "calf"
                         | "cervical"
                         | "elbow"
@@ -3820,6 +4367,7 @@ fn musculoskeletal_topic_body_site(site: &RawMatch) -> bool {
                         | "lumbar"
                         | "neck"
                         | "patella"
+                        | "skin"
                         | "shoulder"
                         | "spine"
                         | "spinal"
@@ -3849,8 +4397,11 @@ fn body_site_topic_starts_scope(field_text: &str, _site_start: usize, site_end: 
             "ache"
                 | "aching"
                 | "effusion"
+                | "hard"
+                | "hot"
                 | "injury"
                 | "locking"
+                | "lump"
                 | "pain"
                 | "rash"
                 | "red"
@@ -3860,6 +4411,7 @@ fn body_site_topic_starts_scope(field_text: &str, _site_start: usize, site_end: 
                 | "swollen"
                 | "tender"
                 | "tenderness"
+                | "throbbing"
                 | "warm"
                 | "warmth"
         )
@@ -3870,7 +4422,7 @@ fn body_site_topic_scope_reaches(field_text: &str, site_end: usize, symptom_star
     let Some(gap) = field_text.get(site_end..symptom_start) else {
         return false;
     };
-    !gap.contains("\n\n") && !gap.contains("\r\n\r\n")
+    !gap.contains("\n\n") && !gap.contains("\r\n\r\n") && !body_site_topic_scope_break(gap)
 }
 
 fn body_site_heading_starts_scope(field_text: &str, site_start: usize, site_end: usize) -> bool {
@@ -3917,7 +4469,27 @@ fn body_site_heading_scope_reaches(
     let Some(gap) = field_text.get(site_end..symptom_start) else {
         return false;
     };
-    !gap.contains("\n\n") && !gap.contains("\r\n\r\n")
+    !gap.contains("\n\n") && !gap.contains("\r\n\r\n") && !body_site_topic_scope_break(gap)
+}
+
+fn body_site_topic_scope_break(gap: &str) -> bool {
+    let normalized = normalize_term(gap);
+    normalized.contains("off work")
+        || normalized
+            .split(' ')
+            .filter(|token| !token.is_empty())
+            .any(|token| {
+                matches!(
+                    token,
+                    "anxious"
+                        | "anxiety"
+                        | "driving"
+                        | "employment"
+                        | "psychological"
+                        | "psychosocial"
+                        | "social"
+                )
+            })
 }
 
 fn previous_hard_boundary(field_text: &str, before: usize) -> usize {
@@ -3993,8 +4565,11 @@ fn allowed_body_site_gap_token(token: &str) -> bool {
             | "and"
             | "area"
             | "areas"
+            | "blocked"
             | "congested"
             | "congestion"
+            | "duct"
+            | "hard"
             | "hot"
             | "itchy"
             | "joint"
@@ -4006,10 +4581,12 @@ fn allowed_body_site_gap_token(token: &str) -> bool {
             | "patches"
             | "rash"
             | "red"
+            | "shaped"
             | "skin"
             | "swollen"
             | "tender"
             | "warm"
+            | "wedge"
     )
 }
 
