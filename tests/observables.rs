@@ -156,6 +156,33 @@ fn captures_values_through_filler_words() {
 }
 
 #[test]
+fn captures_blood_pressure_written_with_over_separator() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("fixtures")
+        .join("synthetic-observables.openehr-valueset.json");
+    let artefact = build_from_openehr_valueset(path).unwrap();
+    let extractor = Extractor::new(artefact).unwrap();
+
+    let response = extractor
+        .extract_observables(ObservableExtractRequest {
+            note_id: Some("obs-bp-over".to_string()),
+            objective: "BP 146 over 86. Pulse 92 regular.".to_string(),
+            include_suppressed: false,
+            refset_id: Some("785380551000001102".to_string()),
+        })
+        .unwrap();
+
+    let bp = response
+        .matches
+        .iter()
+        .find(|item| item.preferred_term == "Blood pressure")
+        .expect("BP match present");
+    assert_eq!(bp.value.as_ref().unwrap().text, "146/86");
+    assert_eq!(bp.value.as_ref().unwrap().span_start, 3);
+    assert_eq!(bp.value.as_ref().unwrap().span_end, 14);
+}
+
+#[test]
 fn captures_values_from_compact_gp_copd_objective_vitals() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("fixtures")

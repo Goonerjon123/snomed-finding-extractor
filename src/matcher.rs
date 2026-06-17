@@ -378,7 +378,13 @@ impl TerminologyMatcher {
             // Short numeric labels (T, P, ...) only match when a value follows;
             // observable matches additionally capture the value for the EPR.
             let value = if capture_values || meta.requires_numeric_value {
-                capture_value_after(&normalized, text, &tokens, found.end())
+                capture_value_after(
+                    &normalized,
+                    text,
+                    &tokens,
+                    found.end(),
+                    captures_compound_blood_pressure_value(meta),
+                )
             } else {
                 None
             };
@@ -619,6 +625,12 @@ fn is_official_term_source(source: &str) -> bool {
     )
 }
 
+fn captures_compound_blood_pressure_value(meta: &PatternMeta) -> bool {
+    let preferred = normalize_term(&meta.preferred_term);
+    let pattern = meta.pattern.as_str();
+    preferred == "blood pressure" || pattern == "bp" || pattern == "blood pressure"
+}
+
 /// Filler words tolerated between a numeric label and its value, so
 /// "BP today 128/82" and "BP of 128/82" capture 128/82 just like "BP 128/82".
 const VALUE_FILLER: &[&str] = &[
@@ -676,11 +688,22 @@ fn capture_value_after(
     text: &str,
     tokens: &[NormalizedToken<'_>],
     pattern_end: usize,
+    capture_compound_blood_pressure: bool,
 ) -> Option<MeasuredValue> {
     let start_index = tokens.iter().position(|token| token.start >= pattern_end)?;
 
     for (offset, token) in tokens[start_index..].iter().enumerate() {
         if is_value_token(token.text) {
+            if capture_compound_blood_pressure {
+                if let Some(value) = capture_blood_pressure_over_value(
+                    normalized,
+                    text,
+                    tokens,
+                    start_index + offset,
+                ) {
+                    return Some(value);
+                }
+            }
             let (value_start, value_end) = normalized.original_range(token.start, token.end)?;
             let (unit, span_end) = capture_unit_after(text, value_end);
             return Some(MeasuredValue {
@@ -701,8 +724,48 @@ fn capture_value_after(
     None
 }
 
+fn capture_blood_pressure_over_value(
+    normalized: &NormalizedText,
+    text: &str,
+    tokens: &[NormalizedToken<'_>],
+    value_index: usize,
+) -> Option<MeasuredValue> {
+    let systolic = tokens.get(value_index)?;
+    let separator = tokens.get(value_index + 1)?;
+    let diastolic = tokens.get(value_index + 2)?;
+
+    if separator.text != "over"
+        || !is_unsigned_integer(systolic.text)
+        || !is_unsigned_integer(diastolic.text)
+    {
+        return None;
+    }
+    let gap = text.get(systolic.original_end..diastolic.original_start)?;
+    if gap.chars().any(|ch| matches!(ch, '.' | ';' | '\n' | '\r')) {
+        return None;
+    }
+
+    let (value_start, _) = normalized.original_range(systolic.start, systolic.end)?;
+    let (_, value_end) = normalized.original_range(diastolic.start, diastolic.end)?;
+    let (unit, span_end) = capture_unit_after(text, value_end);
+    Some(MeasuredValue {
+        text: format!(
+            "{}/{}",
+            &text[systolic.original_start..systolic.original_end],
+            &text[diastolic.original_start..diastolic.original_end]
+        ),
+        unit,
+        span_start: value_start,
+        span_end,
+    })
+}
+
 fn is_value_token(token: &str) -> bool {
     matches!(token.chars().next(), Some(ch) if ch.is_ascii_digit() || ch == '-' || ch == '+')
+}
+
+fn is_unsigned_integer(token: &str) -> bool {
+    !token.is_empty() && token.chars().all(|ch| ch.is_ascii_digit())
 }
 
 /// Reads a unit from the original text directly after a captured value,

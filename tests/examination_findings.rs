@@ -509,6 +509,95 @@ fn examination_findings_suppress_bare_normal_and_wrong_site_false_positives() {
     }));
 }
 
+#[test]
+fn examination_findings_include_plain_normal_and_joint_exam_statements() {
+    let artefact = TerminologyArtefact {
+        schema_version: 1,
+        terminology_version: "test".to_string(),
+        source_release: "test".to_string(),
+        refset_id: "test-refset".to_string(),
+        generated_at_utc: "test".to_string(),
+        concepts: vec![
+            concept("247441003", "Erythema", &["redness"]),
+            concept("707793005", "Hot skin", &["warmth"]),
+        ],
+        artefact_hash: String::new(),
+    };
+    let extractor = Extractor::new(artefact).unwrap();
+
+    let response = extractor
+        .extract_examination_findings(ExaminationFindingsExtractRequest {
+            note_id: Some("exam-plain-normal-joint".to_string()),
+            objective: "Abdomen soft. Throat normal. No knee redness or warmth. Small keffusion. Tender medial joint line. Flexion mildly reduced. Gait slightly antalgic. Small pleural effusion.".to_string(),
+            include_suppressed: true,
+            refset_id: None,
+        })
+        .unwrap();
+
+    let matches = response
+        .matches
+        .iter()
+        .map(|item| {
+            (
+                item.concept_id.as_str(),
+                item.preferred_term.as_str(),
+                item.matched_text.as_str(),
+                item.assertion,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    for expected in [
+        (
+            "271911005",
+            "Abdominal examination finding",
+            "Abdomen soft",
+            AssertionStatus::Normal,
+        ),
+        (
+            "300280008",
+            "Pharynx normal",
+            "Throat normal",
+            AssertionStatus::Normal,
+        ),
+        ("247441003", "Erythema", "redness", AssertionStatus::Negated),
+        ("707793005", "Hot skin", "warmth", AssertionStatus::Negated),
+        (
+            "387637008",
+            "Effusion of joint",
+            "Small keffusion",
+            AssertionStatus::Affirmed,
+        ),
+        (
+            "301399007",
+            "Musculoskeletal tenderness",
+            "Tender medial joint line",
+            AssertionStatus::Affirmed,
+        ),
+        (
+            "70733008",
+            "Limitation of joint movement",
+            "Flexion mildly reduced",
+            AssertionStatus::Affirmed,
+        ),
+        (
+            "67141003",
+            "Antalgic gait",
+            "Gait slightly antalgic",
+            AssertionStatus::Affirmed,
+        ),
+    ] {
+        assert!(
+            matches.contains(&expected),
+            "expected structured exam match {expected:?}; got {matches:?}"
+        );
+    }
+
+    assert!(!matches.iter().any(|item| {
+        item.0 == "387637008" && item.2.eq_ignore_ascii_case("Small pleural effusion")
+    }));
+}
+
 fn concept(concept_id: &str, preferred_term: &str, variants: &[&str]) -> ConceptEntry {
     ConceptEntry {
         concept_id: concept_id.to_string(),

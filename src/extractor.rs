@@ -190,6 +190,7 @@ impl Extractor {
 
         self.local_body_site_for_match(raw, field_text, body_site_matches)
             .or_else(|| heading_body_site_for_match(raw, field_text, body_site_matches))
+            .or_else(|| topic_body_site_for_match(raw, field_text, body_site_matches))
     }
 
     fn local_body_site_for_match(
@@ -354,6 +355,25 @@ const STATUS_REDUCED: &[ExamResultStatus] = &[
     },
 ];
 
+const STATUS_REDUCED_LIMITED: &[ExamResultStatus] = &[
+    ExamResultStatus {
+        phrase: "reduced",
+        assertion: AssertionStatus::Affirmed,
+    },
+    ExamResultStatus {
+        phrase: "diminished",
+        assertion: AssertionStatus::Affirmed,
+    },
+    ExamResultStatus {
+        phrase: "limited",
+        assertion: AssertionStatus::Affirmed,
+    },
+    ExamResultStatus {
+        phrase: "restricted",
+        assertion: AssertionStatus::Affirmed,
+    },
+];
+
 const STATUS_ABSENT: &[ExamResultStatus] = &[ExamResultStatus {
     phrase: "absent",
     assertion: AssertionStatus::Affirmed,
@@ -439,6 +459,10 @@ const STATUS_POSITIVE_PAIN_CLICK_OR_NEGATIVE: &[ExamResultStatus] = &[
 
 const STATUS_SNT_OR_SOFT_NONTENDER: &[ExamResultStatus] = &[
     ExamResultStatus {
+        phrase: "soft",
+        assertion: AssertionStatus::Normal,
+    },
+    ExamResultStatus {
         phrase: "snt",
         assertion: AssertionStatus::Normal,
     },
@@ -506,6 +530,13 @@ const STRUCTURED_EXAM_FEATURES: &[StructuredExamFeature] = &[
         subjects: &["abdomen", "abdominal"],
         statuses_after: STATUS_SNT_OR_SOFT_NONTENDER,
         statuses_before: &[],
+    },
+    StructuredExamFeature {
+        concept_id: "300280008",
+        preferred_term: "Pharynx normal",
+        subjects: &["throat", "pharynx"],
+        statuses_after: STATUS_NORMAL,
+        statuses_before: STATUS_NORMAL,
     },
     StructuredExamFeature {
         concept_id: "164734008",
@@ -632,6 +663,13 @@ const STRUCTURED_EXAM_FEATURES: &[StructuredExamFeature] = &[
         subjects: &["range of movement"],
         statuses_after: STATUS_FULL_OR_NORMAL,
         statuses_before: STATUS_FULL_OR_NORMAL,
+    },
+    StructuredExamFeature {
+        concept_id: "70733008",
+        preferred_term: "Limitation of joint movement",
+        subjects: &["flexion", "extension", "joint movement"],
+        statuses_after: STATUS_REDUCED_LIMITED,
+        statuses_before: STATUS_REDUCED_LIMITED,
     },
     StructuredExamFeature {
         concept_id: "301399007",
@@ -824,8 +862,10 @@ fn add_normal_examination_matches(
     add_named_exam_test_matches(field, field_text, &normalized, &tokens, matches);
     add_negated_exam_sign_matches(field, field_text, &normalized, &tokens, matches);
     add_anatomical_tenderness_matches(field, field_text, &normalized, &tokens, matches);
+    add_joint_effusion_matches(field, field_text, &normalized, &tokens, matches);
     add_muscle_weakness_matches(field, field_text, &normalized, &tokens, matches);
     add_capillary_refill_threshold_matches(field, field_text, &normalized, &tokens, matches);
+    add_antalgic_gait_matches(field, field_text, &normalized, &tokens, matches);
     add_breast_lump_matches(field, field_text, &normalized, &tokens, matches);
 }
 
@@ -1212,23 +1252,60 @@ fn add_anatomical_tenderness_matches(
         {
             start -= 1;
         }
-        if start == head_index {
+        if start < head_index {
+            if start > 0 && exam_negation_token(tokens[start - 1].text.as_str()) {
+                continue;
+            }
+
+            let (concept_id, preferred_term) =
+                tenderness_concept_for_modifier_tokens(&tokens[start..head_index]);
+            add_structured_exam_match_from_tokens(
+                field,
+                field_text,
+                normalized,
+                tokens,
+                StructuredExamMatchSpec {
+                    start_token: start,
+                    end_token: head_index + 1,
+                    concept_id,
+                    preferred_term,
+                    assertion: AssertionStatus::Affirmed,
+                    value: None,
+                },
+                matches,
+            );
+        }
+
+        if tokens[head_index].text != "tender" {
             continue;
         }
-        if start > 0 && exam_negation_token(tokens[start - 1].text.as_str()) {
+
+        let mut end = head_index + 1;
+        let upper = (head_index + 6).min(tokens.len());
+        while end < upper
+            && post_tender_modifier_token(tokens[end].text.as_str())
+            && !exam_phrase_boundary_between(
+                field_text,
+                tokens[end - 1].orig_end,
+                tokens[end].orig_start,
+            )
+        {
+            end += 1;
+        }
+        if end == head_index + 1 {
             continue;
         }
 
         let (concept_id, preferred_term) =
-            tenderness_concept_for_modifier_tokens(&tokens[start..head_index]);
+            tenderness_concept_for_modifier_tokens(&tokens[head_index + 1..end]);
         add_structured_exam_match_from_tokens(
             field,
             field_text,
             normalized,
             tokens,
             StructuredExamMatchSpec {
-                start_token: start,
-                end_token: head_index + 1,
+                start_token: head_index,
+                end_token: end,
                 concept_id,
                 preferred_term,
                 assertion: AssertionStatus::Affirmed,
@@ -1270,6 +1347,80 @@ fn abdominal_tenderness_modifier_token(token: &str) -> bool {
         token,
         "abdomen" | "abdominal" | "fossa" | "iliac" | "quadrant"
     )
+}
+
+fn add_joint_effusion_matches(
+    field: SoapField,
+    field_text: &str,
+    normalized: &NormalizedText,
+    tokens: &[ExamToken],
+    matches: &mut Vec<FindingMatch>,
+) {
+    for head_index in 0..tokens.len() {
+        if !looks_like_effusion_token(tokens[head_index].text.as_str())
+            || preceding_negation_token(tokens, head_index, 4)
+            || non_joint_effusion_context(tokens, head_index)
+            || !joint_effusion_context(tokens, head_index)
+        {
+            continue;
+        }
+
+        let mut start = head_index;
+        let lower = head_index.saturating_sub(4);
+        while start > lower
+            && joint_effusion_prefix_token(tokens[start - 1].text.as_str())
+            && !exam_phrase_boundary_between(
+                field_text,
+                tokens[start - 1].orig_end,
+                tokens[start].orig_start,
+            )
+        {
+            start -= 1;
+        }
+
+        add_structured_exam_match_from_tokens(
+            field,
+            field_text,
+            normalized,
+            tokens,
+            StructuredExamMatchSpec {
+                start_token: start,
+                end_token: head_index + 1,
+                concept_id: "387637008",
+                preferred_term: "Effusion of joint",
+                assertion: AssertionStatus::Affirmed,
+                value: None,
+            },
+            matches,
+        );
+    }
+}
+
+fn looks_like_effusion_token(token: &str) -> bool {
+    matches!(token, "effusion" | "effusions")
+        || (token.len() == "effusion".len() + 1 && token.ends_with("effusion"))
+}
+
+fn joint_effusion_context(tokens: &[ExamToken], head_index: usize) -> bool {
+    if head_index > 0 && matches!(tokens[head_index - 1].text.as_str(), "joint" | "joints") {
+        return true;
+    }
+    preceding_musculoskeletal_exam_topic(tokens, head_index, 18)
+}
+
+fn non_joint_effusion_context(tokens: &[ExamToken], head_index: usize) -> bool {
+    head_index > 0 && non_joint_effusion_modifier_token(tokens[head_index - 1].text.as_str())
+}
+
+fn non_joint_effusion_modifier_token(token: &str) -> bool {
+    matches!(
+        token,
+        "ascitic" | "ear" | "middle" | "pericardial" | "peritoneal" | "pleural"
+    )
+}
+
+fn joint_effusion_prefix_token(token: &str) -> bool {
+    degree_modifier_token(token) || musculoskeletal_exam_topic_token(token)
 }
 
 fn add_muscle_weakness_matches(
@@ -1377,6 +1528,80 @@ fn add_capillary_refill_threshold_matches(
                     concept_id: "45332005",
                     preferred_term: "Normal capillary filling",
                     assertion: AssertionStatus::Normal,
+                    value: None,
+                },
+                matches,
+            );
+        }
+    }
+}
+
+fn add_antalgic_gait_matches(
+    field: SoapField,
+    field_text: &str,
+    normalized: &NormalizedText,
+    tokens: &[ExamToken],
+    matches: &mut Vec<FindingMatch>,
+) {
+    for gait_index in 0..tokens.len() {
+        if tokens[gait_index].text != "gait" {
+            continue;
+        }
+
+        let after_limit = (gait_index + 5).min(tokens.len());
+        for antalgic_index in gait_index + 1..after_limit {
+            if tokens[gait_index + 1..antalgic_index]
+                .iter()
+                .any(|token| !degree_modifier_token(token.text.as_str()))
+            {
+                break;
+            }
+            if tokens[antalgic_index].text != "antalgic" {
+                continue;
+            }
+            add_structured_exam_match_from_tokens(
+                field,
+                field_text,
+                normalized,
+                tokens,
+                StructuredExamMatchSpec {
+                    start_token: gait_index,
+                    end_token: antalgic_index + 1,
+                    concept_id: "67141003",
+                    preferred_term: "Antalgic gait",
+                    assertion: AssertionStatus::Affirmed,
+                    value: None,
+                },
+                matches,
+            );
+        }
+
+        if gait_index == 0 {
+            continue;
+        }
+        let mut start = gait_index - 1;
+        while start > 0
+            && degree_modifier_token(tokens[start - 1].text.as_str())
+            && !exam_phrase_boundary_between(
+                field_text,
+                tokens[start - 1].orig_end,
+                tokens[start].orig_start,
+            )
+        {
+            start -= 1;
+        }
+        if tokens[start].text == "antalgic" {
+            add_structured_exam_match_from_tokens(
+                field,
+                field_text,
+                normalized,
+                tokens,
+                StructuredExamMatchSpec {
+                    start_token: start,
+                    end_token: gait_index + 1,
+                    concept_id: "67141003",
+                    preferred_term: "Antalgic gait",
+                    assertion: AssertionStatus::Affirmed,
                     value: None,
                 },
                 matches,
@@ -1748,6 +1973,10 @@ fn structured_exam_status_bridge_token(token: &str) -> bool {
             | "hoffmann"
             | "kernig"
             | "brudzinski"
+            | "mild"
+            | "mildly"
+            | "moderate"
+            | "moderately"
             | "kj"
             | "aj"
             | "power"
@@ -1756,6 +1985,8 @@ fn structured_exam_status_bridge_token(token: &str) -> bool {
             | "reflexes"
             | "range"
             | "movement"
+            | "slight"
+            | "slightly"
             | "tone"
             | "sensation"
             | "slr"
@@ -1769,6 +2000,63 @@ fn structured_exam_status_bridge_token(token: &str) -> bool {
             | "tender"
             | "nontender"
             | "test"
+    )
+}
+
+fn preceding_musculoskeletal_exam_topic(
+    tokens: &[ExamToken],
+    index: usize,
+    max_gap: usize,
+) -> bool {
+    let lower = index.saturating_sub(max_gap);
+    tokens[lower..index]
+        .iter()
+        .any(|token| musculoskeletal_exam_topic_token(token.text.as_str()))
+}
+
+fn musculoskeletal_exam_topic_token(token: &str) -> bool {
+    matches!(
+        token,
+        "ankle"
+            | "arm"
+            | "back"
+            | "calf"
+            | "cervical"
+            | "elbow"
+            | "finger"
+            | "foot"
+            | "hand"
+            | "hip"
+            | "joint"
+            | "joints"
+            | "knee"
+            | "leg"
+            | "lumbar"
+            | "mcl"
+            | "neck"
+            | "patella"
+            | "shoulder"
+            | "spine"
+            | "spinal"
+            | "thoracic"
+            | "toe"
+            | "wrist"
+    )
+}
+
+fn degree_modifier_token(token: &str) -> bool {
+    matches!(
+        token,
+        "mild"
+            | "mildly"
+            | "moderate"
+            | "moderately"
+            | "severe"
+            | "severely"
+            | "slight"
+            | "slightly"
+            | "small"
+            | "trace"
     )
 }
 
@@ -1844,10 +2132,13 @@ fn anatomical_exam_modifier_token(token: &str) -> bool {
             | "iliac"
             | "joint"
             | "knee"
+            | "lateral"
             | "left"
+            | "line"
             | "lower"
             | "lumbar"
             | "mastoid"
+            | "medial"
             | "muscle"
             | "neck"
             | "paraspinal"
@@ -1867,6 +2158,10 @@ fn anatomical_exam_modifier_token(token: &str) -> bool {
             | "quadrant"
             | "wrist"
     )
+}
+
+fn post_tender_modifier_token(token: &str) -> bool {
+    anatomical_exam_modifier_token(token) || matches!(token, "mcl" | "lcl")
 }
 
 fn exam_phrase_boundary_between(text: &str, start: usize, end: usize) -> bool {
@@ -2586,6 +2881,119 @@ fn heading_body_site_for_match(
         .map(body_site_match_from_raw)
 }
 
+fn topic_body_site_for_match(
+    symptom: &RawMatch,
+    field_text: &str,
+    body_site_matches: &[RawMatch],
+) -> Option<BodySiteMatch> {
+    if !broad_symptom_can_use_topic_body_site(symptom) {
+        return None;
+    }
+
+    body_site_matches
+        .iter()
+        .filter(|site| {
+            site.field == symptom.field
+                && !generic_body_site(site)
+                && musculoskeletal_topic_body_site(site)
+                && site.span_end <= symptom.span_start
+                && symptom.span_start.saturating_sub(site.span_end) <= 360
+                && body_site_topic_starts_scope(field_text, site.span_start, site.span_end)
+                && body_site_topic_scope_reaches(field_text, site.span_end, symptom.span_start)
+        })
+        .max_by_key(|site| site.span_start)
+        .map(body_site_match_from_raw)
+}
+
+fn broad_symptom_can_use_topic_body_site(symptom: &RawMatch) -> bool {
+    let preferred = normalize_term(&symptom.preferred_term);
+    matches!(
+        preferred.as_str(),
+        "pain"
+            | "swelling"
+            | "tenderness"
+            | "erythema"
+            | "hot skin"
+            | "itching"
+            | "mass of body structure"
+    ) || matches!(
+        symptom.normalized_match.as_str(),
+        "pain" | "swelling" | "tender" | "tenderness" | "redness" | "warmth" | "lump" | "itch"
+    )
+}
+
+fn musculoskeletal_topic_body_site(site: &RawMatch) -> bool {
+    [site.preferred_term.as_str(), site.normalized_match.as_str()]
+        .iter()
+        .any(|text| {
+            normalize_term(text).split(' ').any(|token| {
+                matches!(
+                    token,
+                    "ankle"
+                        | "arm"
+                        | "back"
+                        | "calf"
+                        | "cervical"
+                        | "elbow"
+                        | "finger"
+                        | "foot"
+                        | "hand"
+                        | "hip"
+                        | "joint"
+                        | "knee"
+                        | "leg"
+                        | "lumbar"
+                        | "neck"
+                        | "patella"
+                        | "shoulder"
+                        | "spine"
+                        | "spinal"
+                        | "thoracic"
+                        | "toe"
+                        | "wrist"
+                )
+            })
+        })
+}
+
+fn body_site_topic_starts_scope(field_text: &str, _site_start: usize, site_end: usize) -> bool {
+    let Some(after) = field_text.get(site_end..) else {
+        return false;
+    };
+    if heading_separator(after.trim_start()) {
+        return true;
+    }
+
+    let after_end = (site_end + 80).min(field_text.len());
+    let Some(window) = field_text.get(site_end..after_end) else {
+        return false;
+    };
+    normalize_term(window).split(' ').any(|token| {
+        matches!(
+            token,
+            "ache"
+                | "aching"
+                | "effusion"
+                | "injury"
+                | "locking"
+                | "pain"
+                | "redness"
+                | "stiffness"
+                | "swelling"
+                | "tender"
+                | "tenderness"
+                | "warmth"
+        )
+    })
+}
+
+fn body_site_topic_scope_reaches(field_text: &str, site_end: usize, symptom_start: usize) -> bool {
+    let Some(gap) = field_text.get(site_end..symptom_start) else {
+        return false;
+    };
+    !gap.contains("\n\n") && !gap.contains("\r\n\r\n")
+}
+
 fn body_site_heading_starts_scope(field_text: &str, site_start: usize, site_end: usize) -> bool {
     let prefix_start = previous_hard_boundary(field_text, site_start);
     let Some(prefix) = field_text.get(prefix_start..site_start) else {
@@ -2678,6 +3086,7 @@ fn allowed_body_site_gap_token(token: &str) -> bool {
             | "of"
             | "at"
             | "to"
+            | "across"
             | "over"
             | "around"
             | "under"

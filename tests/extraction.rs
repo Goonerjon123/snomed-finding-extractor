@@ -510,6 +510,55 @@ fn body_site_heading_beats_bare_joint_alias_for_knee_exam() {
 }
 
 #[test]
+fn broad_musculoskeletal_symptoms_use_local_and_topic_body_sites() {
+    let extractor = extractor_with_body_sites(
+        vec![
+            concept("22253000", "Pain", &["pain"]),
+            concept("65124004", "Swelling", &["swelling"]),
+        ],
+        vec![
+            concept("313850008", "Lower back structure", &["lower back"]),
+            concept("72696002", "Knee region structure", &["knee"]),
+            concept("51185008", "Thoracic structure", &["chest"]),
+        ],
+    );
+
+    let response = extractor
+        .extract(ExtractRequest {
+            history: "Pain across lower back. Left knee pain for months. No locking. Occasional swelling. Chest pain later.".to_string(),
+            include_suppressed: true,
+            ..ExtractRequest::default()
+        })
+        .unwrap();
+
+    let lower_back_pain = response
+        .matches
+        .iter()
+        .find(|item| item.concept_id == "22253000" && item.matched_text == "Pain")
+        .expect("generic pain match");
+    assert_eq!(
+        lower_back_pain
+            .body_site
+            .as_ref()
+            .map(|site| site.concept_id.as_str()),
+        Some("313850008")
+    );
+
+    let swelling = response
+        .matches
+        .iter()
+        .find(|item| item.concept_id == "65124004")
+        .expect("swelling match");
+    assert_eq!(
+        swelling
+            .body_site
+            .as_ref()
+            .map(|site| site.concept_id.as_str()),
+        Some("72696002")
+    );
+}
+
+#[test]
 fn pv_bleeding_and_lower_abdominal_cramping_extract_specific_concepts() {
     let extractor = Extractor::new(TerminologyArtefact {
         schema_version: 1,
