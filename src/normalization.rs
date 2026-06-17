@@ -256,6 +256,21 @@ const SHORTHAND_RULES: &[ShorthandRule] = &[
         replacement: "no abnormality detected",
         objective_safe: true,
     },
+    ShorthandRule {
+        source: &["tm"],
+        replacement: "tympanic membrane",
+        objective_safe: true,
+    },
+    ShorthandRule {
+        source: &["tms"],
+        replacement: "tympanic membranes",
+        objective_safe: true,
+    },
+    ShorthandRule {
+        source: &["rom"],
+        replacement: "range of movement",
+        objective_safe: true,
+    },
 ];
 
 fn expand_gp_shorthand(normalized: &NormalizedText, field: SoapField) -> NormalizedText {
@@ -465,6 +480,18 @@ mod tests {
         assert_eq!(
             normalize_clinical_text("LUQ/RLQ/LLQ pain", SoapField::History).text,
             "left upper quadrant right lower quadrant left lower quadrant pain"
+        );
+    }
+
+    #[test]
+    fn expands_common_objective_exam_shorthand() {
+        assert_eq!(
+            normalize_clinical_text("R TM red; ROM reduced", SoapField::Objective).text,
+            "r tympanic membrane red range of movement reduced"
+        );
+        assert_eq!(
+            normalize_clinical_text("TMs normal", SoapField::Objective).text,
+            "tympanic membranes normal"
         );
     }
 

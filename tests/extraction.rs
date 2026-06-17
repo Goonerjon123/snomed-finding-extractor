@@ -71,6 +71,33 @@ fn extractor_with_generic_shared_head_terms() -> Extractor {
     .unwrap()
 }
 
+fn extractor_with_body_sites(
+    symptoms: Vec<ConceptEntry>,
+    body_sites: Vec<ConceptEntry>,
+) -> Extractor {
+    Extractor::new_with_body_sites(
+        TerminologyArtefact {
+            schema_version: 1,
+            terminology_version: "fixture-symptoms".to_string(),
+            source_release: "fixture".to_string(),
+            refset_id: "fixture-symptoms".to_string(),
+            generated_at_utc: "fixture".to_string(),
+            concepts: symptoms,
+            artefact_hash: String::new(),
+        },
+        TerminologyArtefact {
+            schema_version: 1,
+            terminology_version: "fixture-body-sites".to_string(),
+            source_release: "fixture".to_string(),
+            refset_id: "fixture-body-sites".to_string(),
+            generated_at_utc: "fixture".to_string(),
+            concepts: body_sites,
+            artefact_hash: String::new(),
+        },
+    )
+    .unwrap()
+}
+
 #[test]
 fn extracts_affirmed_findings_and_suppresses_unsafe_contexts() {
     let extractor = extractor();
@@ -333,6 +360,205 @@ fn head_first_site_mentions_prefer_specific_site_concepts() {
 }
 
 #[test]
+fn broad_symptoms_include_nearby_body_site_from_body_site_refset() {
+    let extractor = extractor_with_body_sites(
+        vec![
+            concept("418363000", "Itching", &["itch"]),
+            concept("300848003", "Mass of body structure", &["lump"]),
+        ],
+        vec![
+            concept("30021000", "Leg structure", &["leg"]),
+            concept("76752008", "Breast structure", &["breast"]),
+        ],
+    );
+
+    let response = extractor
+        .extract(ExtractRequest {
+            history: "Itch - leg. Lump R breast.".to_string(),
+            include_suppressed: true,
+            ..ExtractRequest::default()
+        })
+        .unwrap();
+
+    assert_eq!(response.matches.len(), 2);
+
+    let itch = response
+        .matches
+        .iter()
+        .find(|item| item.concept_id == "418363000")
+        .unwrap();
+    let itch_site = itch.body_site.as_ref().unwrap();
+    assert_eq!(itch_site.concept_id, "30021000");
+    assert_eq!(itch_site.preferred_term, "Leg structure");
+    assert_eq!(itch_site.matched_text, "leg");
+
+    let lump = response
+        .matches
+        .iter()
+        .find(|item| item.concept_id == "300848003")
+        .unwrap();
+    let lump_site = lump.body_site.as_ref().unwrap();
+    assert_eq!(lump_site.concept_id, "76752008");
+    assert_eq!(lump_site.preferred_term, "Breast structure");
+    assert_eq!(lump_site.matched_text, "breast");
+}
+
+#[test]
+fn body_site_is_not_added_when_selected_symptom_already_implies_site() {
+    let extractor = extractor_with_body_sites(
+        vec![
+            concept("22253000", "Pain", &["pain"]),
+            concept("16001004", "Earache", &["earache", "ear pain"]),
+        ],
+        vec![
+            concept("117590005", "Ear structure", &["ear"]),
+            concept("30021000", "Leg structure", &["leg"]),
+        ],
+    );
+
+    let response = extractor
+        .extract(ExtractRequest {
+            history: "Ear pain. Pain in leg.".to_string(),
+            include_suppressed: true,
+            ..ExtractRequest::default()
+        })
+        .unwrap();
+
+    assert_eq!(response.matches.len(), 2);
+
+    let earache = response
+        .matches
+        .iter()
+        .find(|item| item.concept_id == "16001004")
+        .unwrap();
+    assert_eq!(earache.preferred_term, "Earache");
+    assert!(earache.body_site.is_none());
+
+    let pain = response
+        .matches
+        .iter()
+        .find(|item| item.concept_id == "22253000")
+        .unwrap();
+    assert_eq!(
+        pain.body_site.as_ref().map(|site| site.concept_id.as_str()),
+        Some("30021000")
+    );
+}
+
+#[test]
+fn body_site_heading_beats_bare_joint_alias_for_knee_exam() {
+    let extractor = extractor_with_body_sites(
+        vec![
+            concept("22253000", "Pain", &["painful"]),
+            concept("247348008", "Tenderness", &["tender"]),
+        ],
+        vec![
+            concept("72696002", "Knee region structure", &["knee"]),
+            concept("125682004", "Finger joint structure", &["joint"]),
+        ],
+    );
+
+    let response = extractor
+        .extract(ExtractRequest {
+            objective: "R knee \u{2014} small effusion, mildly warm, no erythema. ROM: flexion reduced + painful past ~110 degrees, full extension. Tender medial joint line.".to_string(),
+            include_suppressed: true,
+            ..ExtractRequest::default()
+        })
+        .unwrap();
+
+    let pain = response
+        .matches
+        .iter()
+        .find(|item| item.concept_id == "22253000")
+        .unwrap();
+    assert_eq!(
+        pain.body_site.as_ref().map(|site| site.concept_id.as_str()),
+        Some("72696002")
+    );
+
+    let tenderness = response
+        .matches
+        .iter()
+        .find(|item| item.concept_id == "247348008")
+        .unwrap();
+    assert_eq!(
+        tenderness
+            .body_site
+            .as_ref()
+            .map(|site| site.concept_id.as_str()),
+        Some("72696002")
+    );
+
+    assert!(!response.matches.iter().any(|item| {
+        item.body_site.as_ref().map(|site| site.concept_id.as_str()) == Some("125682004")
+    }));
+
+    let mojibake_dash = extractor
+        .extract(ExtractRequest {
+            objective: "R knee \u{00e2}\u{20ac}\u{201d} Tender medial joint line.".to_string(),
+            include_suppressed: true,
+            ..ExtractRequest::default()
+        })
+        .unwrap();
+    assert_eq!(
+        mojibake_dash.matches[0]
+            .body_site
+            .as_ref()
+            .map(|site| site.concept_id.as_str()),
+        Some("72696002")
+    );
+}
+
+#[test]
+fn broad_musculoskeletal_symptoms_use_local_and_topic_body_sites() {
+    let extractor = extractor_with_body_sites(
+        vec![
+            concept("22253000", "Pain", &["pain"]),
+            concept("65124004", "Swelling", &["swelling"]),
+        ],
+        vec![
+            concept("313850008", "Lower back structure", &["lower back"]),
+            concept("72696002", "Knee region structure", &["knee"]),
+            concept("51185008", "Thoracic structure", &["chest"]),
+        ],
+    );
+
+    let response = extractor
+        .extract(ExtractRequest {
+            history: "Pain across lower back. Left knee pain for months. No locking. Occasional swelling. Chest pain later.".to_string(),
+            include_suppressed: true,
+            ..ExtractRequest::default()
+        })
+        .unwrap();
+
+    let lower_back_pain = response
+        .matches
+        .iter()
+        .find(|item| item.concept_id == "22253000" && item.matched_text == "Pain")
+        .expect("generic pain match");
+    assert_eq!(
+        lower_back_pain
+            .body_site
+            .as_ref()
+            .map(|site| site.concept_id.as_str()),
+        Some("313850008")
+    );
+
+    let swelling = response
+        .matches
+        .iter()
+        .find(|item| item.concept_id == "65124004")
+        .expect("swelling match");
+    assert_eq!(
+        swelling
+            .body_site
+            .as_ref()
+            .map(|site| site.concept_id.as_str()),
+        Some("72696002")
+    );
+}
+
+#[test]
 fn pv_bleeding_and_lower_abdominal_cramping_extract_specific_concepts() {
     let extractor = Extractor::new(TerminologyArtefact {
         schema_version: 1,
@@ -376,6 +602,39 @@ fn pv_bleeding_and_lower_abdominal_cramping_extract_specific_concepts() {
     assert_eq!(response.suppressed[0].preferred_term, "Pain");
     assert_eq!(response.suppressed[0].matched_text, "pain");
     assert_eq!(response.suppressed[0].assertion, AssertionStatus::Negated);
+}
+
+#[test]
+fn extracts_colloquial_weight_loss_variant() {
+    let extractor = Extractor::new(TerminologyArtefact {
+        schema_version: 1,
+        terminology_version: "test".to_string(),
+        source_release: "test".to_string(),
+        refset_id: "fixture-symptoms".to_string(),
+        generated_at_utc: "test".to_string(),
+        artefact_hash: "UNVERIFIED".to_string(),
+        concepts: vec![concept(
+            "267024001",
+            "Abnormal weight loss",
+            &["abnormal weight loss", "losing weight"],
+        )],
+    })
+    .unwrap();
+
+    let response = extractor
+        .extract(ExtractRequest {
+            history: "c/o losing weight ~3-4/12 without trying".to_string(),
+            include_suppressed: true,
+            ..ExtractRequest::default()
+        })
+        .unwrap();
+
+    assert!(response.matches.iter().any(|item| {
+        item.concept_id == "267024001"
+            && item.preferred_term == "Abnormal weight loss"
+            && item.matched_text == "losing weight"
+    }));
+    assert!(response.suppressed.is_empty());
 }
 
 fn concept(
@@ -476,4 +735,50 @@ fn suppresses_coordinated_shared_head_findings_under_negation() {
     assert!(!positives.iter().any(|item| matches!(item.0, "generic-2")));
     assert!(suppressed.contains(&("generic-1", "alpha/beta marker", AssertionStatus::Negated)));
     assert!(suppressed.contains(&("generic-2", "beta marker", AssertionStatus::Negated)));
+}
+
+#[test]
+fn suppresses_qualified_symptoms_in_repeated_negated_red_flag_lists() {
+    let extractor = Extractor::new(TerminologyArtefact {
+        schema_version: 1,
+        terminology_version: "fixture-negated-red-flags".to_string(),
+        source_release: "fixture".to_string(),
+        refset_id: "fixture-negated-red-flags".to_string(),
+        generated_at_utc: "fixture".to_string(),
+        concepts: vec![
+            concept("422400008", "Vomiting", &["vomiting"]),
+            concept("63491006", "Intermittent claudication", &["claudication"]),
+            concept("49727002", "Cough", &["coughing"]),
+            concept("13791008", "Asthenia", &["weakness"]),
+            concept("44077006", "Numbness", &["numbness"]),
+            concept("386661006", "Fever", &["fever"]),
+            concept("161880003", "Stiff neck symptom", &["neck stiffness"]),
+        ],
+        artefact_hash: String::new(),
+    })
+    .unwrap();
+
+    let response = extractor
+        .extract(ExtractRequest {
+            history: "No visual loss, no weakness/numbness, no fever/neck stiffness, not worse lying/coughing, no early-morning vomiting, no jaw claudication.".to_string(),
+            include_suppressed: true,
+            refset_id: Some("fixture-negated-red-flags".to_string()),
+            ..ExtractRequest::default()
+        })
+        .unwrap();
+
+    assert!(response.matches.is_empty());
+
+    for concept_id in ["422400008", "63491006"] {
+        assert!(
+            response.suppressed.iter().any(|item| {
+                item.concept_id == concept_id && item.assertion == AssertionStatus::Negated
+            }),
+            "expected negated suppression for {concept_id}"
+        );
+    }
+
+    assert!(response.suppressed.iter().any(|item| {
+        item.concept_id == "49727002" && item.assertion == AssertionStatus::Ambiguous
+    }));
 }

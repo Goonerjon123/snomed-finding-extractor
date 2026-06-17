@@ -23,8 +23,10 @@ pub fn build_from_openehr_valueset(path: impl AsRef<Path>) -> Result<Terminology
         }
 
         let observable_entity = is_observable_entity(member.fsn.as_deref());
+        let body_structure = is_body_structure(member.fsn.as_deref());
         let mut variants = Vec::new();
         let mut descriptions = Vec::new();
+        let mut body_structure_sources = Vec::new();
         push_variant(
             &mut variants,
             member.display.as_str(),
@@ -32,6 +34,9 @@ pub fn build_from_openehr_valueset(path: impl AsRef<Path>) -> Result<Terminology
             None,
             false,
         );
+        if body_structure {
+            body_structure_sources.push((member.display.clone(), None));
+        }
         if let Some(fsn) = member.fsn.as_deref() {
             if let Some(term) = strip_fsn_semantic_tag(fsn) {
                 push_variant(
@@ -41,6 +46,9 @@ pub fn build_from_openehr_valueset(path: impl AsRef<Path>) -> Result<Terminology
                     None,
                     false,
                 );
+                if body_structure {
+                    body_structure_sources.push((term.to_string(), None));
+                }
             }
         }
         for description in member
@@ -73,6 +81,15 @@ pub fn build_from_openehr_valueset(path: impl AsRef<Path>) -> Result<Terminology
                     derived.allow_ambiguous,
                 );
             }
+            if body_structure {
+                body_structure_sources.push((
+                    description.term.clone(),
+                    Some(description.description_id.clone()),
+                ));
+            }
+        }
+        for (term, description_id) in body_structure_sources {
+            push_body_structure_variants(&mut variants, term.as_str(), description_id);
         }
         if observable_entity {
             push_observable_entity_aliases(&mut variants, member.display.as_str());
@@ -175,6 +192,9 @@ pub fn build_from_rf2_snapshot<P: AsRef<Path>>(
 
         let preferred_term = choose_preferred_term(&descriptions);
         let mut variants = Vec::new();
+        let body_structure = descriptions
+            .iter()
+            .any(|description| is_body_structure(Some(description.term.as_str())));
         for description in descriptions
             .iter()
             .filter(|description| description.description_type != "fully_specified_name")
@@ -194,6 +214,13 @@ pub fn build_from_rf2_snapshot<P: AsRef<Path>>(
                     derived.source,
                     Some(description.description_id.clone()),
                     derived.allow_ambiguous,
+                );
+            }
+            if body_structure {
+                push_body_structure_variants(
+                    &mut variants,
+                    description.term.as_str(),
+                    Some(description.description_id.clone()),
                 );
             }
         }
@@ -527,6 +554,124 @@ fn derive_description_variants(term: &str) -> Vec<DerivedVariant> {
     variants
 }
 
+fn push_body_structure_variants(
+    variants: &mut Vec<TermVariant>,
+    term: &str,
+    description_id: Option<String>,
+) {
+    for variant in body_structure_variants(term) {
+        push_variant(
+            variants,
+            variant.as_str(),
+            "openehr-body-site-structure-variant",
+            description_id.clone(),
+            false,
+        );
+    }
+}
+
+fn body_structure_variants(term: &str) -> Vec<String> {
+    let normalized = normalize_term(strip_fsn_semantic_tag(term).unwrap_or(term));
+    let mut variants = Vec::new();
+    push_body_structure_variant(&mut variants, &normalized);
+
+    if let Some(rest) = normalized.strip_prefix("structure of ") {
+        push_body_structure_variant(&mut variants, rest.trim());
+    }
+
+    if let Some(rest) = normalized.strip_suffix(" structure") {
+        push_body_structure_variant(&mut variants, rest.trim());
+    }
+
+    let seeds = variants.clone();
+    for seed in seeds {
+        if let Some(rest) = seed.strip_suffix(" region") {
+            push_body_structure_variant(&mut variants, rest.trim());
+        }
+        if let Some(rest) = seed.strip_prefix("structure of ") {
+            push_body_structure_variant(&mut variants, rest.trim());
+        }
+        if let Some(collapsed) = collapse_body_region_phrase(&seed) {
+            push_body_structure_variant(&mut variants, &collapsed);
+        }
+        if let Some(head) = safe_body_site_head_before_of(&seed) {
+            push_body_structure_variant(&mut variants, head);
+        }
+    }
+
+    let mut seen = HashSet::new();
+    variants
+        .into_iter()
+        .filter(|variant| seen.insert(normalize_term(variant)))
+        .collect()
+}
+
+fn push_body_structure_variant(variants: &mut Vec<String>, value: &str) {
+    let normalized = normalize_term(value);
+    if safe_body_structure_variant(&normalized) {
+        variants.push(normalized);
+    }
+}
+
+fn collapse_body_region_phrase(value: &str) -> Option<String> {
+    for marker in [" region of ", " part of "] {
+        let Some((head, tail)) = value.split_once(marker) else {
+            continue;
+        };
+        let head = head.trim();
+        let tail = tail.trim();
+        if head.is_empty() || tail.is_empty() {
+            continue;
+        }
+        return Some(format!("{head} {tail}"));
+    }
+
+    None
+}
+
+fn safe_body_site_head_before_of(value: &str) -> Option<&str> {
+    let (head, tail) = value.split_once(" of ")?;
+    let head = head.trim();
+    let tail = tail.trim();
+    if tail.is_empty()
+        || !safe_body_structure_variant(head)
+        || generic_body_structure_variant(head)
+        || head.split(' ').count() > 2
+    {
+        return None;
+    }
+
+    Some(head)
+}
+
+fn safe_body_structure_variant(value: &str) -> bool {
+    let words = value
+        .split(' ')
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>();
+    !words.is_empty()
+        && words.len() <= 6
+        && value.chars().filter(|ch| ch.is_alphanumeric()).count() >= 3
+        && words
+            .iter()
+            .all(|word| word.chars().all(|ch| ch.is_ascii_alphabetic()))
+        && !generic_body_structure_variant(value)
+}
+
+fn generic_body_structure_variant(value: &str) -> bool {
+    matches!(
+        value,
+        "body"
+            | "body structure"
+            | "body part"
+            | "entire body"
+            | "anatomical structure"
+            | "organ"
+            | "joint"
+            | "structure"
+    )
+}
+
 fn push_observable_entity_aliases(variants: &mut Vec<TermVariant>, preferred_term: &str) {
     let normalized_preferred = normalize_term(preferred_term);
     let aliases: &[(&str, bool)] = match normalized_preferred.as_str() {
@@ -654,7 +799,15 @@ fn split_acronym_expansion(term: &str) -> Option<(&str, &str)> {
     let (prefix, expansion) = term.split_once(" - ")?;
     let prefix = prefix.trim();
     let expansion = expansion.trim();
-    if prefix.len() < 3 || prefix.len() > 12 || expansion.len() < 5 {
+    let short_digit_clinical_prefix =
+        prefix.len() == 2 && prefix.chars().any(|ch| ch.is_ascii_digit());
+    if (!short_digit_clinical_prefix && prefix.len() < 3)
+        || prefix.len() > 12
+        || expansion.len() < 5
+    {
+        return None;
+    }
+    if short_digit_clinical_prefix && !safe_short_digit_acronym_expansion(prefix, expansion) {
         return None;
     }
     if !is_acronym_like_prefix(prefix) {
@@ -672,6 +825,10 @@ fn is_acronym_like_prefix(prefix: &str) -> bool {
     let letter_count = prefix.chars().filter(|ch| ch.is_ascii_alphabetic()).count();
 
     upper_count >= 2 || (prefix.chars().any(|ch| ch.is_ascii_digit()) && letter_count > 0)
+}
+
+fn safe_short_digit_acronym_expansion(prefix: &str, expansion: &str) -> bool {
+    matches!(prefix, "S3" | "S4" | "P2") && normalize_term(expansion).contains("heart sound")
 }
 
 fn acronym_matches_expansion(prefix: &str, expansion: &str) -> bool {
@@ -763,13 +920,47 @@ fn diabetes_type_label(type_code: &str) -> Option<&'static str> {
 
 fn morphology_variants(term: &str) -> Vec<String> {
     let normalized = normalize_term(term);
+    if let Some(body_site) = normalized.strip_prefix("tenderness of ") {
+        let body_site = body_site.trim();
+        if !body_site.is_empty() {
+            let mut variants = vec![format!("{body_site} tenderness")];
+            if let Some(body_site_without_region) = body_site.strip_suffix(" region") {
+                variants.push(format!("{} tenderness", body_site_without_region.trim()));
+            }
+            if body_site == "epigastrium" {
+                variants.push("epigastric tenderness".to_string());
+            }
+            return variants;
+        }
+    }
     if let Some(body_site) = normalized.strip_prefix("swelling of ") {
-        return vec![format!("swollen {}", body_site.trim())];
+        let body_site = body_site.trim();
+        let mut variants = vec![
+            format!("swollen {body_site}"),
+            format!("{body_site} swollen"),
+        ];
+        if body_site == "eyelid" {
+            variants.push("lid swollen".to_string());
+            variants.push("lids swollen".to_string());
+        }
+        return variants;
     }
     if let Some(body_site) = normalized.strip_suffix(" swelling") {
         let body_site = body_site.trim();
         if !body_site.is_empty() {
-            return vec![format!("swollen {body_site}")];
+            return vec![
+                format!("swollen {body_site}"),
+                format!("{body_site} swollen"),
+            ];
+        }
+    }
+    if let Some(body_site) = normalized.strip_prefix("swollen ") {
+        let body_site = body_site.trim();
+        if safe_short_body_site_phrase(body_site) {
+            return vec![
+                format!("{body_site} swollen"),
+                format!("{body_site} swelling"),
+            ];
         }
     }
     for suffix in [" edema", " oedema"] {
@@ -779,11 +970,11 @@ fn morphology_variants(term: &str) -> Vec<String> {
                 return vec![
                     format!("{body_site} swelling"),
                     format!("swollen {body_site}"),
+                    format!("{body_site} swollen"),
                 ];
             }
         }
     }
-
     let normalized = normalized
         .strip_suffix(" symptom")
         .map(str::trim)
@@ -806,7 +997,12 @@ fn morphology_variants(term: &str) -> Vec<String> {
 
 fn clinical_phrase_variants(term: &str) -> Vec<String> {
     let mut variants = Vec::new();
-    if let Some((_, suffix)) = term.split_once(" - ") {
+    if let Some((prefix, suffix)) = term.split_once(" - ") {
+        let prefix = normalize_term(prefix);
+        if is_safe_concise_clinical_head(&prefix) {
+            variants.push(prefix);
+        }
+
         let suffix = normalize_term(suffix);
         if is_safe_context_trimmed_phrase(&suffix) {
             variants.push(suffix);
@@ -823,11 +1019,17 @@ fn clinical_phrase_variants(term: &str) -> Vec<String> {
     variants.extend(pain_phrase_variants(normalized));
     variants.extend(cold_body_site_variants(normalized));
     variants.extend(colloquial_symptom_variants(normalized));
+    variants.extend(decreased_reduced_variants(normalized));
+    variants.extend(descriptor_final_clinical_variants(normalized));
+    variants.extend(prepositionless_site_variants(normalized));
+    variants.extend(positive_sign_variants(normalized));
+    variants.extend(concise_causal_phrase_variants(normalized));
 
     if let Some(function) = normalized.strip_prefix("impaired ") {
         let function = function.trim();
         if safe_short_body_site_phrase(function) {
             variants.push(format!("reduced {function}"));
+            variants.push(function.to_string());
         }
     }
     if let Some(function) = normalized.strip_suffix(" impairment") {
@@ -838,6 +1040,8 @@ fn clinical_phrase_variants(term: &str) -> Vec<String> {
     }
     if normalized == "depressed mood" {
         variants.push("low mood".to_string());
+        variants.push("mood low".to_string());
+        variants.push("mood subjectively low".to_string());
     }
     if let Some(base) = normalized.strip_suffix(" symptom") {
         let base = base.trim();
@@ -886,6 +1090,363 @@ fn clinical_phrase_variants(term: &str) -> Vec<String> {
     }
 
     variants
+}
+
+fn concise_causal_phrase_variants(normalized: &str) -> Vec<String> {
+    for marker in [" due to ", " secondary to ", " caused by "] {
+        if let Some(base) = normalized.split_once(marker).map(|(base, _)| base.trim()) {
+            if is_safe_concise_clinical_head(base) {
+                return vec![base.to_string()];
+            }
+        }
+    }
+
+    Vec::new()
+}
+
+fn is_safe_concise_clinical_head(value: &str) -> bool {
+    let words = value
+        .split(' ')
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>();
+    let alnum_count = value.chars().filter(|ch| ch.is_alphanumeric()).count();
+
+    !words.is_empty()
+        && words.len() <= 4
+        && alnum_count >= 7
+        && words
+            .iter()
+            .all(|word| word.chars().all(|ch| ch.is_ascii_alphabetic()))
+        && !words.iter().any(|word| {
+            matches!(
+                *word,
+                "abnormality"
+                    | "change"
+                    | "condition"
+                    | "disorder"
+                    | "finding"
+                    | "movement"
+                    | "problem"
+                    | "sign"
+                    | "state"
+                    | "symptom"
+            )
+        })
+}
+
+fn decreased_reduced_variants(normalized: &str) -> Vec<String> {
+    let mut variants = Vec::new();
+    if let Some(rest) = normalized.strip_prefix("decreased ") {
+        let rest = rest.trim();
+        if is_safe_clinical_phrase_variant(rest) {
+            variants.push(format!("reduced {rest}"));
+        }
+    }
+    if let Some(rest) = normalized.strip_prefix("reduced ") {
+        let rest = rest.trim();
+        if is_safe_clinical_phrase_variant(rest) {
+            variants.push(format!("decreased {rest}"));
+            variants.push(format!("{rest} reduced"));
+        }
+    }
+    variants
+}
+
+fn descriptor_final_clinical_variants(normalized: &str) -> Vec<String> {
+    let tokens = normalized.split(' ').collect::<Vec<_>>();
+    if tokens.len() < 2 || tokens.len() > 4 {
+        return Vec::new();
+    }
+
+    let Some((descriptor, noun_phrase)) = tokens.split_first() else {
+        return Vec::new();
+    };
+    if !reorderable_clinical_descriptor(descriptor) || !likely_clinical_noun_phrase(noun_phrase) {
+        return Vec::new();
+    }
+
+    let mut reordered = noun_phrase.to_vec();
+    reordered.push(*descriptor);
+    vec![reordered.join(" ")]
+}
+
+fn reorderable_clinical_descriptor(token: &str) -> bool {
+    matches!(
+        token,
+        "abnormal"
+            | "absent"
+            | "altered"
+            | "blurred"
+            | "decreased"
+            | "disturbed"
+            | "erratic"
+            | "frequent"
+            | "heavy"
+            | "heavier"
+            | "impaired"
+            | "increased"
+            | "infrequent"
+            | "irregular"
+            | "light"
+            | "low"
+            | "missed"
+            | "painful"
+            | "poor"
+            | "prolonged"
+            | "reduced"
+            | "scanty"
+            | "variable"
+    )
+}
+
+fn likely_clinical_noun_phrase(tokens: &[&str]) -> bool {
+    if tokens.is_empty() || tokens.len() > 3 {
+        return false;
+    }
+
+    tokens.iter().all(|token| clinical_noun_phrase_token(token))
+        && tokens
+            .last()
+            .map(|token| clinical_noun_head(token))
+            .unwrap_or(false)
+}
+
+fn clinical_noun_phrase_token(token: &str) -> bool {
+    matches!(
+        token,
+        "appetite"
+            | "balance"
+            | "bleeding"
+            | "bowel"
+            | "concentration"
+            | "cycle"
+            | "flow"
+            | "gait"
+            | "hearing"
+            | "memory"
+            | "menstrual"
+            | "menses"
+            | "menstruation"
+            | "mood"
+            | "period"
+            | "periods"
+            | "sleep"
+            | "stool"
+            | "urinary"
+            | "urination"
+            | "urine"
+            | "vision"
+            | "weight"
+    )
+}
+
+fn clinical_noun_head(token: &str) -> bool {
+    matches!(
+        token,
+        "appetite"
+            | "balance"
+            | "bleeding"
+            | "concentration"
+            | "cycle"
+            | "flow"
+            | "gait"
+            | "hearing"
+            | "memory"
+            | "menses"
+            | "menstruation"
+            | "mood"
+            | "period"
+            | "periods"
+            | "sleep"
+            | "stool"
+            | "urination"
+            | "urine"
+            | "vision"
+            | "weight"
+    )
+}
+
+fn prepositionless_site_variants(normalized: &str) -> Vec<String> {
+    let Some(tokens) = prepositional_body_site_tokens(normalized) else {
+        return Vec::new();
+    };
+    if tokens.preposition_index == 0 || tokens.preposition_index + 1 >= tokens.tokens.len() {
+        return Vec::new();
+    }
+
+    let head = &tokens.tokens[..tokens.preposition_index];
+    let site = &tokens.tokens[tokens.preposition_index + 1..];
+    if !likely_short_body_site(site) || head.iter().any(|token| weak_flexible_start(token)) {
+        return Vec::new();
+    }
+
+    let head_text = head.join(" ");
+    let site_text = site.join(" ");
+    let mut variants = vec![format!("{head_text} {site_text}")];
+    if head.len() == 1 {
+        variants.push(format!("{site_text} {head_text}"));
+    }
+    variants
+}
+
+fn positive_sign_variants(normalized: &str) -> Vec<String> {
+    let mut variants = Vec::new();
+    if let Some(base) = normalized.strip_suffix(" sign") {
+        let base = base.trim();
+        if is_safe_clinical_phrase_variant(base) {
+            variants.push(format!("{base} positive"));
+            variants.push(format!("positive {base} sign"));
+        }
+    }
+    if let Some(base) = normalized.strip_suffix(" test positive") {
+        let base = base.trim();
+        if is_safe_clinical_phrase_variant(base) {
+            variants.push(format!("{base} positive"));
+        }
+    }
+    variants
+}
+
+struct PrepositionalBodySiteTokens {
+    tokens: Vec<String>,
+    preposition_index: usize,
+}
+
+fn prepositional_body_site_tokens(normalized: &str) -> Option<PrepositionalBodySiteTokens> {
+    let tokens = normalized
+        .split(' ')
+        .filter(|token| !token.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if tokens.len() < 3 || tokens.len() > 7 {
+        return None;
+    }
+    let preposition_index = tokens
+        .iter()
+        .position(|token| flexible_body_site_preposition(token))?;
+    Some(PrepositionalBodySiteTokens {
+        tokens,
+        preposition_index,
+    })
+}
+
+fn likely_short_body_site(tokens: &[String]) -> bool {
+    if tokens.is_empty() || tokens.len() > 4 {
+        return false;
+    }
+
+    tokens.iter().all(|token| {
+        reordered_site_modifier_token(token)
+            || reordered_body_site_token(token)
+            || token == "membrane"
+    })
+}
+
+fn flexible_body_site_preposition(token: &str) -> bool {
+    matches!(token, "of" | "on" | "from" | "over" | "in")
+}
+
+fn weak_flexible_start(token: &str) -> bool {
+    matches!(
+        token,
+        "ability"
+            | "appearance"
+            | "character"
+            | "characteristic"
+            | "feature"
+            | "finding"
+            | "function"
+            | "measurement"
+            | "observation"
+            | "status"
+    )
+}
+
+fn reordered_site_modifier_token(token: &str) -> bool {
+    matches!(
+        token,
+        "left"
+            | "right"
+            | "bilateral"
+            | "upper"
+            | "lower"
+            | "central"
+            | "lateral"
+            | "medial"
+            | "anterior"
+            | "posterior"
+            | "inner"
+            | "outer"
+    )
+}
+
+fn reordered_body_site_token(token: &str) -> bool {
+    matches!(
+        token,
+        "abdomen"
+            | "abdominal"
+            | "ankle"
+            | "arm"
+            | "back"
+            | "bladder"
+            | "bowel"
+            | "breast"
+            | "calf"
+            | "chest"
+            | "ear"
+            | "eye"
+            | "eyelid"
+            | "eyelids"
+            | "face"
+            | "facial"
+            | "feet"
+            | "foot"
+            | "fossa"
+            | "groin"
+            | "hand"
+            | "head"
+            | "heel"
+            | "hip"
+            | "iliac"
+            | "jaw"
+            | "knee"
+            | "leg"
+            | "lid"
+            | "lids"
+            | "limb"
+            | "lumbar"
+            | "malleoli"
+            | "malleolus"
+            | "membrane"
+            | "neck"
+            | "nipple"
+            | "pelvic"
+            | "pelvis"
+            | "perianal"
+            | "quadrant"
+            | "sacral"
+            | "shin"
+            | "shoulder"
+            | "spinal"
+            | "spine"
+            | "testicular"
+            | "testis"
+            | "thigh"
+            | "thoracic"
+            | "throat"
+            | "toe"
+            | "tongue"
+            | "tonsil"
+            | "tonsils"
+            | "tympanic"
+            | "umbilical"
+            | "urethral"
+            | "urinary"
+            | "vaginal"
+            | "vulval"
+            | "vulvar"
+            | "wrist"
+    )
 }
 
 fn coordinator_omission_variants(normalized: &str) -> Vec<String> {
@@ -1003,6 +1564,10 @@ fn colloquial_symptom_variants(normalized: &str) -> Vec<String> {
             variants.push("swollen neck glands".to_string());
             variants.push("swollen glands in neck".to_string());
             variants.push("neck glands swollen".to_string());
+            variants.push("cervical nodes enlarged".to_string());
+            variants.push("enlarged cervical nodes".to_string());
+            variants.push("anterior cervical nodes".to_string());
+            variants.push("anterior cervical lymph nodes".to_string());
         }
         "dry eyes" => {
             variants.push("dry eye".to_string());
@@ -1022,6 +1587,7 @@ fn colloquial_symptom_variants(normalized: &str) -> Vec<String> {
             variants.push("keeping awake".to_string());
         }
         "erythema" => {
+            variants.push("erythematous".to_string());
             variants.push("redness".to_string());
             variants.push("red hot".to_string());
             variants.push("red and hot".to_string());
@@ -1054,6 +1620,10 @@ fn colloquial_symptom_variants(normalized: &str) -> Vec<String> {
             variants.push("periods heavier".to_string());
         }
         "hot skin" => {
+            variants.push("warm skin".to_string());
+            variants.push("skin warm".to_string());
+            variants.push("warmth".to_string());
+            variants.push("warmth of skin".to_string());
             variants.push("skin hot".to_string());
             variants.push("hot swollen".to_string());
             variants.push("hot and swollen".to_string());
@@ -1100,7 +1670,6 @@ fn colloquial_symptom_variants(normalized: &str) -> Vec<String> {
         "nasal discharge" | "anterior rhinorrhea" | "anterior rhinorrhoea" => {
             variants.push("runny nose".to_string());
             variants.push("watery nasal discharge".to_string());
-            variants.push("watery discharge".to_string());
         }
         "nocturia" => {}
         "pain in pelvis" => {
@@ -1112,6 +1681,132 @@ fn colloquial_symptom_variants(normalized: &str) -> Vec<String> {
             variants.push("heart races".to_string());
             variants.push("heart racing".to_string());
             variants.push("racing heartbeat".to_string());
+        }
+        "coarse respiratory crackles" => {
+            variants.push("coarse crackles".to_string());
+            variants.push("coarse crepitations".to_string());
+        }
+        "fine respiratory crackles" => {
+            variants.push("fine crackles".to_string());
+            variants.push("fine crepitations".to_string());
+            variants.push("end inspiratory crackles".to_string());
+            variants.push("fine end inspiratory crackles".to_string());
+        }
+        "arteriovenous crossing changes" => {
+            variants.push("av nipping".to_string());
+        }
+        "chest dull to percussion" => {
+            variants.push("dull percussion".to_string());
+            variants.push("dull percussion note".to_string());
+            variants.push("percussion dull".to_string());
+        }
+        "crossed leg raising sign" => {
+            variants.push("crossed slr".to_string());
+            variants.push("crossed straight leg raise".to_string());
+            variants.push("crossed straight leg raising".to_string());
+        }
+        "finding of straight leg raise" => {
+            variants.push("slr".to_string());
+            variants.push("straight leg raise".to_string());
+            variants.push("straight leg raising".to_string());
+        }
+        "hypesthesia" => {
+            variants.push("sensation reduced".to_string());
+            variants.push("reduced sensation".to_string());
+            variants.push("sensation impaired".to_string());
+            variants.push("impaired sensation".to_string());
+        }
+        "bulging tympanic membrane" => {
+            variants.push("tympanic membrane bulging".to_string());
+            variants.push("bulging tm".to_string());
+        }
+        "exudate on tonsils" => {
+            variants.push("tonsillar exudate".to_string());
+            variants.push("tonsil exudate".to_string());
+            variants.push("tonsils exudate".to_string());
+        }
+        "genitourinary tenderness" => {
+            variants.push("suprapubic tenderness".to_string());
+        }
+        "hyperreflexia" => {
+            variants.push("brisk reflexes".to_string());
+            variants.push("reflexes brisk".to_string());
+        }
+        "hypertrophy of tonsils" => {
+            variants.push("enlarged tonsils".to_string());
+            variants.push("tonsils enlarged".to_string());
+            variants.push("tonsillar enlargement".to_string());
+        }
+        "impaired vibration sensation" => {
+            variants.push("vibration reduced".to_string());
+            variants.push("reduced vibration".to_string());
+            variants.push("vibration sense reduced".to_string());
+        }
+        "impaired body position sense" => {
+            variants.push("proprioception reduced".to_string());
+            variants.push("reduced proprioception".to_string());
+            variants.push("proprioception impaired".to_string());
+            variants.push("impaired proprioception".to_string());
+        }
+        "increased vocal resonance" => {
+            variants.push("vocal resonance increased".to_string());
+        }
+        "injected tympanic membrane" => {
+            variants.push("red tympanic membrane".to_string());
+            variants.push("tympanic membrane red".to_string());
+            variants.push("injected tm".to_string());
+        }
+        "limitation of joint movement" => {
+            variants.push("reduced range of movement".to_string());
+            variants.push("range of movement reduced".to_string());
+            variants.push("limited range of movement".to_string());
+            variants.push("range of movement limited".to_string());
+            variants.push("restricted range of movement".to_string());
+            variants.push("range of movement restricted".to_string());
+        }
+        "mucopurulent discharge" => {
+            variants.push("mucopurulent eye discharge".to_string());
+        }
+        "redness of throat" => {
+            variants.push("throat injected".to_string());
+            variants.push("injected throat".to_string());
+            variants.push("throat mildly injected".to_string());
+        }
+        "scleral injection" => {
+            variants.push("ciliary injection".to_string());
+            variants.push("circumcorneal injection".to_string());
+            variants.push("limbal flush".to_string());
+        }
+        "spurling sign" => {
+            variants.push("spurling test".to_string());
+            variants.push("spurlings test".to_string());
+            variants.push("spurling test positive".to_string());
+            variants.push("spurlings test positive".to_string());
+        }
+        "10g monofilament sensation absent" => {
+            variants.push("monofilament sensation absent".to_string());
+            variants.push("monofilament absent".to_string());
+            variants.push("10g monofilament absent".to_string());
+        }
+        "normal capillary filling" => {
+            variants.push("capillary refill normal".to_string());
+            variants.push("normal capillary refill".to_string());
+            variants.push("crt normal".to_string());
+            variants.push("crt brisk".to_string());
+        }
+        "increased capillary filling time" => {
+            variants.push("capillary refill prolonged".to_string());
+            variants.push("prolonged capillary refill".to_string());
+            variants.push("crt prolonged".to_string());
+        }
+        "ottawa ankle rules test negative" => {
+            variants.push("ottawa ankle rules negative".to_string());
+            variants.push("ottawa ankle foot rules negative".to_string());
+            variants.push("ottawa ankle and foot rules negative".to_string());
+        }
+        "arterial bruit" => {
+            variants.push("thyroid bruit".to_string());
+            variants.push("bruit over gland".to_string());
         }
         "poor stream of urine" => {
             variants.push("poor flow".to_string());
@@ -1193,6 +1888,15 @@ fn colloquial_symptom_variants(normalized: &str) -> Vec<String> {
             variants.push("gaining weight".to_string());
             variants.push("put on weight".to_string());
         }
+        "abnormal weight loss" | "abnormal decrease in weight" => {
+            variants.push("weight loss".to_string());
+            variants.push("lost weight".to_string());
+            variants.push("losing weight".to_string());
+        }
+        "unintentional weight loss" | "involuntary weight loss" => {
+            variants.push("losing weight without trying".to_string());
+            variants.push("lost weight without trying".to_string());
+        }
         _ => {}
     }
 
@@ -1272,6 +1976,16 @@ fn is_observable_entity(fsn: Option<&str>) -> bool {
             .trim()
             .to_ascii_lowercase()
             .ends_with("(observable entity)")
+    })
+    .unwrap_or(false)
+}
+
+fn is_body_structure(fsn: Option<&str>) -> bool {
+    fsn.map(|value| {
+        value
+            .trim()
+            .to_ascii_lowercase()
+            .ends_with("(body structure)")
     })
     .unwrap_or(false)
 }
@@ -1397,6 +2111,29 @@ mod tests {
     }
 
     #[test]
+    fn derives_natural_variants_from_body_structure_terms() {
+        let calf = body_structure_variants("Structure of calf of leg");
+        assert!(calf.iter().any(|variant| variant == "calf of leg"));
+        assert!(calf.iter().any(|variant| variant == "calf"));
+        assert!(!calf.iter().any(|variant| variant == "leg"));
+
+        let finger_joint = body_structure_variants("Joint of finger");
+        assert!(!finger_joint.iter().any(|variant| variant == "joint"));
+
+        let upper_arm = body_structure_variants("Upper arm structure");
+        assert!(upper_arm.iter().any(|variant| variant == "upper arm"));
+
+        let anterior_lower_leg =
+            body_structure_variants("Structure of anterior region of lower leg");
+        assert!(anterior_lower_leg
+            .iter()
+            .any(|variant| variant == "anterior lower leg"));
+        assert!(!anterior_lower_leg
+            .iter()
+            .any(|variant| variant == "lower leg"));
+    }
+
+    #[test]
     fn derives_stiffness_variants_from_stiff_body_site_terms() {
         let derived = derive_description_variants("Stiff neck symptom");
 
@@ -1447,6 +2184,29 @@ mod tests {
     }
 
     #[test]
+    fn derives_concise_clinical_heads_from_explanatory_descriptions() {
+        let hyphenated = derive_description_variants(
+            "Papilledema - optic disc edema due to raised intracranial pressure",
+        );
+        assert!(hyphenated
+            .iter()
+            .any(|variant| variant.term == "papilledema"
+                && variant.source == "openehr-description-clinical-phrase-variant"
+                && !variant.allow_ambiguous));
+
+        let causal =
+            derive_description_variants("Papilloedema due to raised intracranial pressure");
+        assert!(causal.iter().any(|variant| variant.term == "papilloedema"
+            && variant.source == "openehr-description-clinical-phrase-variant"
+            && !variant.allow_ambiguous));
+
+        let vague = derive_description_variants("Movement disorder due to disease");
+        assert!(!vague
+            .iter()
+            .any(|variant| variant.term == "movement disorder"));
+    }
+
+    #[test]
     fn derives_plain_phrase_from_symptom_suffix_terms() {
         let derived = derive_description_variants("Belching symptom");
 
@@ -1468,6 +2228,25 @@ mod tests {
             .any(|variant| variant.term == "painful periods"
                 && variant.source == "openehr-description-clinical-phrase-variant"
                 && !variant.allow_ambiguous));
+
+        let heavy_periods = derive_description_variants("Heavy periods");
+        assert!(heavy_periods
+            .iter()
+            .any(|variant| variant.term == "periods heavy"
+                && variant.source == "openehr-description-clinical-phrase-variant"
+                && !variant.allow_ambiguous));
+
+        let heavy_menstrual_bleeding = derive_description_variants("Heavy menstrual bleeding");
+        assert!(heavy_menstrual_bleeding
+            .iter()
+            .any(|variant| variant.term == "menstrual bleeding heavy"
+                && variant.source == "openehr-description-clinical-phrase-variant"
+                && !variant.allow_ambiguous));
+
+        let heavy_feet = derive_description_variants("Heavy feet");
+        assert!(!heavy_feet
+            .iter()
+            .any(|variant| variant.term == "feet heavy"));
     }
 
     #[test]
@@ -1530,6 +2309,24 @@ mod tests {
         assert!(fatigue.iter().any(|variant| variant.term == "exhausted"));
         assert!(fatigue.iter().any(|variant| variant.term == "no energy"));
 
+        let poor_sleep = derive_description_variants("Poor sleep");
+        assert!(poor_sleep
+            .iter()
+            .any(|variant| variant.term == "sleep poor"));
+
+        let weight_loss = derive_description_variants("Abnormal weight loss");
+        assert!(weight_loss
+            .iter()
+            .any(|variant| variant.term == "losing weight"));
+        assert!(weight_loss
+            .iter()
+            .any(|variant| variant.term == "lost weight"));
+
+        let unintentional_weight_loss = derive_description_variants("Unintentional weight loss");
+        assert!(unintentional_weight_loss
+            .iter()
+            .any(|variant| variant.term == "losing weight without trying"));
+
         let palpitations = derive_description_variants("Palpitations");
         assert!(palpitations
             .iter()
@@ -1561,6 +2358,13 @@ mod tests {
             .any(|variant| variant.term == "eye discharge"
                 && variant.source == "openehr-description-clinical-phrase-variant"
                 && !variant.allow_ambiguous));
+        let rhinorrhea = derive_description_variants("Anterior rhinorrhea");
+        assert!(rhinorrhea
+            .iter()
+            .any(|variant| variant.term == "watery nasal discharge"));
+        assert!(!rhinorrhea
+            .iter()
+            .any(|variant| variant.term == "watery discharge"));
 
         let galactorrhea =
             derive_description_variants("Galactorrhea not associated with childbirth");
@@ -1589,6 +2393,53 @@ mod tests {
         assert!(derived.iter().any(|variant| variant.term == "low mood"
             && variant.source == "openehr-description-clinical-phrase-variant"
             && !variant.allow_ambiguous));
+        assert!(derived.iter().any(|variant| variant.term == "mood low"
+            && variant.source == "openehr-description-clinical-phrase-variant"
+            && !variant.allow_ambiguous));
+    }
+
+    #[test]
+    fn derives_objective_examination_phrase_variants() {
+        let movement = derive_description_variants("Limitation of joint movement");
+        assert!(movement
+            .iter()
+            .any(|variant| variant.term == "range of movement reduced"));
+
+        let mcburney = derive_description_variants("McBurney's sign");
+        assert!(mcburney
+            .iter()
+            .any(|variant| variant.term == "mcburney s positive"));
+
+        let tenderness = derive_description_variants("Tenderness of right iliac fossa");
+        assert!(tenderness
+            .iter()
+            .any(|variant| variant.term == "right iliac fossa tenderness"));
+
+        let calf = derive_description_variants("Swollen calf");
+        assert!(calf.iter().any(|variant| variant.term == "calf swollen"));
+
+        let epigastric_tenderness = derive_description_variants("Tenderness of epigastric region");
+        assert!(epigastric_tenderness
+            .iter()
+            .any(|variant| variant.term == "epigastric region tenderness"));
+        assert!(epigastric_tenderness
+            .iter()
+            .any(|variant| variant.term == "epigastric tenderness"));
+
+        let scleral = derive_description_variants("Scleral injection");
+        assert!(scleral
+            .iter()
+            .any(|variant| variant.term == "ciliary injection"));
+
+        let coarse = derive_description_variants("Coarse respiratory crackles");
+        assert!(coarse
+            .iter()
+            .any(|variant| variant.term == "coarse crepitations"));
+
+        let s3 = derive_description_variants("S3 - Third heart sound");
+        assert!(s3
+            .iter()
+            .any(|variant| variant.term == "S3" && variant.allow_ambiguous));
     }
 
     #[test]

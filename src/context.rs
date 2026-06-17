@@ -35,6 +35,7 @@ struct Token {
 /// its last token.
 #[derive(Debug)]
 struct SentenceView {
+    field: SoapField,
     tokens: Vec<Token>,
     span_first: usize,
     span_after: usize,
@@ -302,6 +303,7 @@ const ANATOMICAL_GAP_ALLOW: &[&str] = &[
     "hands",
     "hip",
     "hips",
+    "interdigital",
     "knee",
     "knees",
     "leg",
@@ -348,6 +350,51 @@ const LIST_FRAGMENT_BLOCKERS: &[&str] = &[
     "reports",
     "says",
     "with",
+];
+
+const DIRECT_NEGATION_MODIFIER_BLOCKERS: &[&str] = &[
+    "about",
+    "after",
+    "before",
+    "by",
+    "despite",
+    "due",
+    "during",
+    "for",
+    "from",
+    "in",
+    "into",
+    "near",
+    "on",
+    "onto",
+    "over",
+    "re",
+    "regarding",
+    "since",
+    "to",
+    "with",
+    "within",
+    "change",
+    "changes",
+    "chance",
+    "concern",
+    "concerns",
+    "decrease",
+    "decreased",
+    "improve",
+    "improved",
+    "improving",
+    "improvement",
+    "increase",
+    "increased",
+    "reduced",
+    "reduction",
+    "relief",
+    "risk",
+    "worse",
+    "worsen",
+    "worsened",
+    "worsening",
 ];
 
 /// Connectors a family/non-patient experiencer may scope across before the
@@ -511,9 +558,7 @@ pub fn classify_assertion(
         .collect::<Vec<_>>();
 
     let view = sentence_view(field, sentence, rel_span, &rel_siblings);
-    let query_prefix = field_text[sentence_start..span_start]
-        .trim_end()
-        .ends_with('?');
+    let query_prefix = query_prefix_applies(&field_text[sentence_start..span_start]);
 
     let mut hits = Vec::new();
 
@@ -535,7 +580,7 @@ pub fn classify_assertion(
         });
     }
 
-    if tight_cue_applies(&view, NEGATION_PHRASES, TIGHT_GAP_ALLOW) {
+    if negation_cue_applies(&view) {
         hits.push(RuleHit {
             assertion: AssertionStatus::Negated,
             rule_id: "CTX_NEGATED_PRECEDING",
@@ -661,6 +706,15 @@ fn sentence_bounds(text: &str, span_start: usize, span_end: usize) -> (usize, us
     (start, end)
 }
 
+fn query_prefix_applies(prefix: &str) -> bool {
+    let prefix = prefix.trim_end();
+    let Some(before_query) = prefix.strip_suffix('?') else {
+        return false;
+    };
+    let before_query = before_query.trim_end();
+    before_query.is_empty() || before_query.ends_with(':')
+}
+
 fn sentence_view(
     field: SoapField,
     sentence: &str,
@@ -718,15 +772,15 @@ fn sentence_view(
         .unwrap_or(tokens.len());
 
     SentenceView {
+        field,
         tokens,
         span_first,
         span_after: span_after.max(span_first),
     }
 }
 
-/// End index (exclusive) of the last phrase from `phrases` finishing at or
-/// before `limit`.
-fn last_phrase_end(tokens: &[Token], limit: usize, phrases: &[&[&str]]) -> Option<usize> {
+/// Span of the last phrase from `phrases` finishing at or before `limit`.
+fn last_phrase_span(tokens: &[Token], limit: usize, phrases: &[&[&str]]) -> Option<(usize, usize)> {
     let mut last = None;
     for phrase in phrases {
         if phrase.is_empty() || phrase.len() > limit {
@@ -739,13 +793,22 @@ fn last_phrase_end(tokens: &[Token], limit: usize, phrases: &[&[&str]]) -> Optio
                 .all(|(offset, word)| tokens[start + offset].text == *word);
             if matched {
                 let end = start + phrase.len();
-                if last.map(|previous| end > previous).unwrap_or(true) {
-                    last = Some(end);
+                if last
+                    .map(|(_, previous_end)| end > previous_end)
+                    .unwrap_or(true)
+                {
+                    last = Some((start, end));
                 }
             }
         }
     }
     last
+}
+
+/// End index (exclusive) of the last phrase from `phrases` finishing at or
+/// before `limit`.
+fn last_phrase_end(tokens: &[Token], limit: usize, phrases: &[&[&str]]) -> Option<usize> {
+    last_phrase_span(tokens, limit, phrases).map(|(_, end)| end)
 }
 
 fn is_contrast(token: &Token) -> bool {
@@ -769,15 +832,42 @@ fn tight_gap_is_clear(
     allow: &[&str],
     match_start: usize,
 ) -> bool {
-    gap.clone().all(|index| {
-        let token = &tokens[index];
-        !is_contrast(token)
-            && (token.sibling
-                || has_digit(token)
-                || allow.contains(&token.text.as_str())
-                || ANATOMICAL_GAP_ALLOW.contains(&token.text.as_str())
-                || is_negated_list_fragment(tokens, index, match_start))
-    })
+    gap.clone()
+        .all(|index| tight_gap_token_is_clear(tokens, index, allow, match_start))
+}
+
+fn tight_gap_token_is_clear(
+    tokens: &[Token],
+    index: usize,
+    allow: &[&str],
+    match_start: usize,
+) -> bool {
+    let token = &tokens[index];
+    if starts_affirmed_finding_after_list_separator(token) {
+        return false;
+    }
+    !is_contrast(token)
+        && (token.sibling
+            || has_digit(token)
+            || allow.contains(&token.text.as_str())
+            || ANATOMICAL_GAP_ALLOW.contains(&token.text.as_str())
+            || is_negated_list_fragment(tokens, index, match_start))
+}
+
+fn starts_affirmed_finding_after_list_separator(token: &Token) -> bool {
+    token.list_separator_before
+        && matches!(
+            token.text.as_str(),
+            "mild"
+                | "mildly"
+                | "moderate"
+                | "moderately"
+                | "severe"
+                | "severely"
+                | "small"
+                | "large"
+                | "significant"
+        )
 }
 
 fn is_negated_list_fragment(tokens: &[Token], index: usize, match_start: usize) -> bool {
@@ -825,6 +915,125 @@ fn tight_cue_applies(view: &SentenceView, phrases: &[&[&str]], allow: &[&str]) -
         allow,
         view.span_first,
     )
+}
+
+fn negation_cue_applies(view: &SentenceView) -> bool {
+    let Some((_, cue_end)) = last_phrase_span(&view.tokens, view.span_first, NEGATION_PHRASES)
+    else {
+        return false;
+    };
+
+    let gap = cue_end..view.span_first;
+    if view.field == SoapField::Objective
+        && objective_exam_result_starts_at_match(view)
+        && gap.clone().any(|index| {
+            has_digit(&view.tokens[index])
+                || view.tokens[index].list_separator_before
+                || view.tokens[index].list_separator_after
+        })
+    {
+        return false;
+    }
+
+    tight_gap_is_clear(&view.tokens, gap.clone(), TIGHT_GAP_ALLOW, view.span_first)
+        || direct_negation_modifier_gap_is_clear(&view.tokens, gap, view.span_first)
+}
+
+fn objective_exam_result_starts_at_match(view: &SentenceView) -> bool {
+    let mut index = view.span_after;
+    let limit = (view.span_after + 4).min(view.tokens.len());
+    while index < limit {
+        let token = view.tokens[index].text.as_str();
+        if objective_exam_result_status_token(token) || has_digit(&view.tokens[index]) {
+            return true;
+        }
+        if !objective_exam_shared_feature_token(token) && !objective_exam_result_bridge_token(token)
+        {
+            return false;
+        }
+        index += 1;
+    }
+
+    false
+}
+
+fn objective_exam_result_status_token(token: &str) -> bool {
+    matches!(
+        token,
+        "normal"
+            | "clear"
+            | "intact"
+            | "symmetrical"
+            | "symmetric"
+            | "full"
+            | "present"
+            | "palpable"
+            | "pulsatile"
+            | "regular"
+            | "equal"
+    )
+}
+
+fn objective_exam_shared_feature_token(token: &str) -> bool {
+    matches!(
+        token,
+        "coordination"
+            | "gait"
+            | "power"
+            | "reflex"
+            | "reflexes"
+            | "range"
+            | "movement"
+            | "rom"
+            | "sensation"
+            | "tone"
+    )
+}
+
+fn objective_exam_result_bridge_token(token: &str) -> bool {
+    matches!(token, "and" | "or" | "plus" | "is" | "are")
+}
+
+fn direct_negation_modifier_gap_is_clear(
+    tokens: &[Token],
+    gap: std::ops::Range<usize>,
+    match_start: usize,
+) -> bool {
+    let gap_len = gap.end.saturating_sub(gap.start);
+    if gap_len == 0 || gap_len > 4 {
+        return false;
+    }
+
+    let mut inferred_modifiers = 0usize;
+    for index in gap {
+        let token = &tokens[index];
+        if starts_affirmed_finding_after_list_separator(token) || is_contrast(token) {
+            return false;
+        }
+        if tight_gap_token_is_clear(tokens, index, TIGHT_GAP_ALLOW, match_start) {
+            continue;
+        }
+        if safe_direct_negation_modifier(token) {
+            inferred_modifiers += 1;
+            if inferred_modifiers <= 2 {
+                continue;
+            }
+        }
+        return false;
+    }
+
+    true
+}
+
+fn safe_direct_negation_modifier(token: &Token) -> bool {
+    let text = token.text.as_str();
+    text.len() >= 2
+        && text.len() <= 18
+        && text.chars().all(|ch| ch.is_ascii_alphabetic())
+        && !text.ends_with("ed")
+        && !text.ends_with("ing")
+        && !LIST_FRAGMENT_BLOCKERS.contains(&text)
+        && !DIRECT_NEGATION_MODIFIER_BLOCKERS.contains(&text)
 }
 
 /// A frame cue (conditional, family-history heading) applies to the rest of
@@ -1087,11 +1296,90 @@ mod tests {
             ("No spinal step/mass", "mass", vec!["step"]),
             ("No ear pain", "pain", vec![]),
             ("No DVT-type calf pain", "calf pain", vec![]),
+            ("No interdigital maceration", "maceration", vec![]),
         ] {
             let decision = classify_with_siblings(SoapField::History, text, target, &siblings);
             assert!(!decision.accepted, "expected suppression for {text}");
             assert_eq!(decision.assertion, AssertionStatus::Negated);
         }
+    }
+
+    #[test]
+    fn negation_scopes_over_directly_qualified_symptoms() {
+        for (text, target) in [
+            ("No early-morning vomiting", "vomiting"),
+            ("No jaw claudication", "claudication"),
+            ("No right upper quadrant pain", "pain"),
+            ("Denies scalp tenderness", "tenderness"),
+        ] {
+            let decision = classify(SoapField::History, text, target);
+            assert!(!decision.accepted, "expected suppression for {text}");
+            assert_eq!(decision.assertion, AssertionStatus::Negated);
+        }
+    }
+
+    #[test]
+    fn repeated_negation_in_red_flag_lists_scopes_to_each_qualified_symptom() {
+        let text = "No visual loss, no weakness/numbness, no fever/neck stiffness, not worse lying/coughing, no early-morning vomiting, no jaw claudication.";
+
+        for target in ["vomiting", "claudication"] {
+            let decision = classify(SoapField::History, text, target);
+            assert!(!decision.accepted, "expected suppression for {target}");
+            assert_eq!(decision.assertion, AssertionStatus::Negated);
+        }
+
+        let cough = classify(SoapField::History, text, "coughing");
+        assert!(!cough.accepted);
+        assert_eq!(cough.assertion, AssertionStatus::Ambiguous);
+    }
+
+    #[test]
+    fn comma_after_negated_list_can_start_affirmed_finding() {
+        let decision = classify(
+            SoapField::Objective,
+            "Fundi - no haemorrhages/exudates, mild AV nipping",
+            "AV nipping",
+        );
+        assert!(decision.accepted);
+    }
+
+    #[test]
+    fn objective_parenthetical_negation_does_not_leak_to_normal_exam_results() {
+        let text =
+            "Fundi normal (no papilloedema), power 5/5, reflexes symmetrical, coordination + gait normal.";
+
+        for target in ["reflexes", "coordination", "gait"] {
+            let decision = classify(SoapField::Objective, text, target);
+            assert!(decision.accepted, "expected acceptance for {target}");
+        }
+    }
+
+    #[test]
+    fn laterality_body_site_prefix_does_not_make_finding_uncertain() {
+        let decision = classify(
+            SoapField::Objective,
+            "L lower leg - erythema, warmth and swelling",
+            "erythema",
+        );
+        assert!(decision.accepted);
+    }
+
+    #[test]
+    fn objective_laterality_prefix_stays_affirmed_with_sibling_match() {
+        let decision = classify_with_siblings(
+            SoapField::Objective,
+            "L lower leg - erythema, warmth + swelling over shin",
+            "erythema",
+            &["warmth"],
+        );
+        assert!(decision.accepted);
+    }
+
+    #[test]
+    fn objective_full_note_laterality_prefix_stays_affirmed() {
+        let text = "O/E: T 38.1, HR 96. L lower leg — erythema, warmth + swelling over shin, ~12x8cm, demarcated + outlined in pen.";
+        let decision = classify_with_siblings(SoapField::Objective, text, "erythema", &["warmth"]);
+        assert!(decision.accepted);
     }
 
     #[test]
@@ -1252,6 +1540,27 @@ mod tests {
         let decision = classify(SoapField::Assessment, "?pneumonia", "pneumonia");
         assert!(!decision.accepted);
         assert_eq!(decision.assertion, AssertionStatus::Uncertain);
+    }
+
+    #[test]
+    fn query_prefix_after_heading_is_uncertain() {
+        let decision = classify(
+            SoapField::Assessment,
+            "Impression: ? pneumonia",
+            "pneumonia",
+        );
+        assert!(!decision.accepted);
+        assert_eq!(decision.assertion, AssertionStatus::Uncertain);
+    }
+
+    #[test]
+    fn question_mark_separator_after_site_label_is_not_uncertain() {
+        let decision = classify(
+            SoapField::Objective,
+            "ENT ? throat injected",
+            "throat injected",
+        );
+        assert!(decision.accepted);
     }
 
     #[test]
