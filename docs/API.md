@@ -2,7 +2,7 @@
 
 ## Intended Use
 
-The engine supports clinicians by identifying candidate SNOMED CT finding codes mentioned in SOAP free text, candidate SNOMED CT observable entity codes mentioned in the Objective field, candidate SNOMED CT examination finding codes mentioned in the Objective field, and candidate SNOMED CT diagnosis/disorder codes mentioned in the Assessment field for clinician review and confirmation.
+The engine supports clinicians by identifying candidate SNOMED CT finding codes mentioned in SOAP free text, candidate SNOMED CT observable entity codes mentioned in the Objective field, candidate SNOMED CT examination finding codes mentioned in the Objective field, and candidate SNOMED CT diagnosis/disorder codes mentioned in the Assessment field for clinician review and confirmation. It also recognises a small fixed set of non-SNOMED Plan workflow entities.
 
 ## Finding Request
 
@@ -67,7 +67,32 @@ The examination findings endpoint only accepts Objective text. It should be back
 
 The diagnosis endpoint only accepts Assessment text. It should be backed by an artefact built from the disorders/diagnoses value set, for example refset `782688301000001101`.
 
-## Response
+## Plan Entity Request
+
+`POST /v1/extract-plan`
+
+```json
+{
+  "note_id": "optional-local-id",
+  "plan": "Prescribe amoxicillin. Refer to physiotherapy. Issue eMed3. Review in 2 weeks."
+}
+```
+
+The Plan entity endpoint accepts only Plan text. It does not use a terminology artefact and does not return SNOMED codes.
+
+Recognised Plan entity categories:
+
+- `Prescription`
+- `Referral`
+- `eMed3`
+- `Appointment`
+- `Investigation`
+- `Procedure`
+- `Monitoring`
+- `Medication Review`
+- `Administrative Task`
+
+## Coded Response
 
 ```json
 {
@@ -104,7 +129,33 @@ The diagnosis endpoint only accepts Assessment text. It should be backed by an a
 }
 ```
 
-The response shape is the same for all endpoints. For `/v1/extract-observables` and `/v1/extract-examination-findings`, every returned `field` is `objective`. For `/v1/extract-diagnoses`, every returned `field` is `assessment`. The `concept_id` values come from the endpoint's loaded artefact.
+The coded response shape is the same for `/v1/extract`, `/v1/extract-observables`, `/v1/extract-examination-findings`, and `/v1/extract-diagnoses`. For `/v1/extract-observables` and `/v1/extract-examination-findings`, every returned `field` is `objective`. For `/v1/extract-diagnoses`, every returned `field` is `assessment`. The `concept_id` values come from the endpoint's loaded artefact.
+
+## Plan Entity Response
+
+```json
+{
+  "note_id": "optional-local-id",
+  "plan_entities": ["Prescription", "Referral", "eMed3", "Appointment"],
+  "matches": [
+    {
+      "entity": "Prescription",
+      "field": "plan",
+      "span_start": 0,
+      "span_end": 20,
+      "matched_text": "Prescribe amoxicillin",
+      "normalized_match": "prescribe amoxicillin",
+      "rule_ids": ["PLAN_PRESCRIPTION_MEDICATION_ACTION"],
+      "explanation": "Accepted as a Plan entity: Prescription cue in the Plan field."
+    }
+  ],
+  "engine_version": "0.2.0",
+  "ruleset_version": "ruleset-2026-06-15-v6",
+  "elapsed_micros": 120
+}
+```
+
+`plan_entities` is the deduplicated entity output for the Plan field. `matches` provides span-level evidence for UI explanation or audit, but contains no `concept_id`, `preferred_term`, `term_source`, `terminology_version`, or `artefact_hash`.
 
 ### Match fields
 

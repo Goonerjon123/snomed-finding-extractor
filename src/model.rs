@@ -123,6 +123,74 @@ impl From<DiagnosisExtractRequest> for ExtractRequest {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct PlanExtractRequest {
+    #[serde(default)]
+    pub note_id: Option<String>,
+    #[serde(default)]
+    pub plan: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum PlanEntityKind {
+    #[serde(rename = "Prescription")]
+    Prescription,
+    #[serde(rename = "Referral")]
+    Referral,
+    #[serde(rename = "eMed3")]
+    Emed3,
+    #[serde(rename = "Appointment")]
+    Appointment,
+    #[serde(rename = "Investigation")]
+    Investigation,
+    #[serde(rename = "Procedure")]
+    Procedure,
+    #[serde(rename = "Monitoring")]
+    Monitoring,
+    #[serde(rename = "Medication Review")]
+    MedicationReview,
+    #[serde(rename = "Administrative Task")]
+    AdministrativeTask,
+}
+
+impl PlanEntityKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            PlanEntityKind::Prescription => "Prescription",
+            PlanEntityKind::Referral => "Referral",
+            PlanEntityKind::Emed3 => "eMed3",
+            PlanEntityKind::Appointment => "Appointment",
+            PlanEntityKind::Investigation => "Investigation",
+            PlanEntityKind::Procedure => "Procedure",
+            PlanEntityKind::Monitoring => "Monitoring",
+            PlanEntityKind::MedicationReview => "Medication Review",
+            PlanEntityKind::AdministrativeTask => "Administrative Task",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PlanEntityMatch {
+    pub entity: PlanEntityKind,
+    pub field: SoapField,
+    pub span_start: usize,
+    pub span_end: usize,
+    pub matched_text: String,
+    pub normalized_match: String,
+    pub rule_ids: Vec<String>,
+    pub explanation: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PlanExtractResponse {
+    pub note_id: Option<String>,
+    pub plan_entities: Vec<PlanEntityKind>,
+    pub matches: Vec<PlanEntityMatch>,
+    pub engine_version: String,
+    pub ruleset_version: String,
+    pub elapsed_micros: u128,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ExtractResponse {
     pub note_id: Option<String>,

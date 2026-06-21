@@ -6,8 +6,9 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use clap::Parser;
 use snomed_finding_extractor::{
-    DiagnosisExtractRequest, ExaminationFindingsExtractRequest, ExtractRequest, ExtractResponse,
-    Extractor, ObservableExtractRequest, TerminologyArtefact,
+    extract_plan_entities, DiagnosisExtractRequest, ExaminationFindingsExtractRequest,
+    ExtractRequest, ExtractResponse, Extractor, ObservableExtractRequest, PlanExtractRequest,
+    PlanExtractResponse, TerminologyArtefact,
 };
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -49,16 +50,6 @@ async fn main() -> Result<()> {
     if cli.artefact.is_none() && cli.body_site_artefact.is_some() {
         anyhow::bail!("--body-site-artefact requires --artefact because body sites enrich the finding endpoint");
     }
-    if cli.artefact.is_none()
-        && cli.observables_artefact.is_none()
-        && cli.examination_findings_artefact.is_none()
-        && cli.diagnoses_artefact.is_none()
-    {
-        anyhow::bail!(
-            "configure at least one artefact with --artefact, --observables-artefact, --examination-findings-artefact, or --diagnoses-artefact"
-        );
-    }
-
     let findings =
         load_optional_finding_extractor(cli.artefact.as_ref(), cli.body_site_artefact.as_ref())?;
     let observables = load_optional_extractor(cli.observables_artefact.as_ref(), "observable")?;
@@ -81,6 +72,7 @@ async fn main() -> Result<()> {
         .route("/styles.css", get(styles_css))
         .route("/healthz", get(healthz))
         .route("/v1/extract", post(extract))
+        .route("/v1/extract-plan", post(extract_plan))
         .route("/v1/extract-observables", post(extract_observables))
         .route(
             "/v1/extract-examination-findings",
@@ -188,6 +180,10 @@ async fn extract(
         .extract(request)
         .map(Json)
         .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()))
+}
+
+async fn extract_plan(Json(request): Json<PlanExtractRequest>) -> Json<PlanExtractResponse> {
+    Json(extract_plan_entities(request))
 }
 
 async fn extract_observables(

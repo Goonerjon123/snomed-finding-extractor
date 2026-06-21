@@ -2,7 +2,7 @@
 
 ## Intended Purpose
 
-Supports clinicians by identifying candidate SNOMED CT finding codes mentioned in SOAP free text, candidate SNOMED CT observable entity codes mentioned in the Objective field, candidate SNOMED CT examination finding codes mentioned in the Objective field, and candidate SNOMED CT diagnosis/disorder codes mentioned in the Assessment field for clinician review and confirmation.
+Supports clinicians by identifying candidate SNOMED CT finding codes mentioned in SOAP free text, candidate SNOMED CT observable entity codes mentioned in the Objective field, candidate SNOMED CT examination finding codes mentioned in the Objective field, and candidate SNOMED CT diagnosis/disorder codes mentioned in the Assessment field for clinician review and confirmation. It also recognises selected non-SNOMED Plan workflow entities for downstream workflow support.
 
 The engine is not intended to diagnose, triage, recommend treatment, or automatically code the medical record without clinician confirmation.
 
@@ -14,6 +14,7 @@ The engine is not intended to diagnose, triage, recommend treatment, or automati
 - Objective-only observable entity extraction API.
 - Objective-only examination finding extraction API.
 - Assessment-only diagnosis/disorder extraction API.
+- Plan-only non-SNOMED entity extraction API.
 - Optional HTTP sidecar.
 - Synthetic validation and evaluation tooling.
 

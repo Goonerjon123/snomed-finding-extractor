@@ -1,8 +1,8 @@
 # SNOMED Finding Extractor
 
-Fast, deterministic, explainable SNOMED CT clinical finding, observable entity, examination finding, and diagnosis extraction for SOAP free text.
+Fast, deterministic, explainable SNOMED CT clinical finding, observable entity, examination finding, diagnosis extraction, and non-SNOMED Plan entity recognition for SOAP free text.
 
-This repository is intended to become a standalone component inside a larger EPR. It proposes candidate SNOMED CT finding, observable entity, examination finding, and diagnosis/disorder codes for clinician confirmation; it does not auto-write codes to the clinical record.
+This repository is intended to become a standalone component inside a larger EPR. It proposes candidate SNOMED CT finding, observable entity, examination finding, and diagnosis/disorder codes for clinician confirmation; it also recognises selected Plan workflow entities without SNOMED coding. It does not auto-write codes to the clinical record.
 
 ## Current Status
 
@@ -15,6 +15,7 @@ This is a v0.2 implementation with:
 - Objective-only observable entity extraction from a separate observations value set manifest, with value/unit capture for openEHR quantities.
 - Objective-only examination finding extraction from a separate examination findings value set manifest.
 - Assessment-only diagnosis/disorder extraction from a separate disorders value set manifest.
+- Plan-only non-SNOMED entity recognition for Prescription, Referral, eMed3, Appointment, Investigation, Procedure, Monitoring, Medication Review, and Administrative Task.
 - RF2 snapshot/refset importer for future full SNOMED synonym enrichment.
 - Runtime UK GP shorthand expansion (`c/o`, `o/e`, `h/o`, `d&v`, `sob`, `fhx`, ...) with span-preserving maps.
 - Terminology-derived variants for safe shorthand, including official acronym prefixes, simple diabetes mellitus phrases, morphology variants, flexible body-site sign phrases, examination phrases such as `X on auscultation`, and numeric-only observable labels.
@@ -185,6 +186,25 @@ Request shape:
 }
 ```
 
+## Extract Plan Entities From Plan JSON
+
+This endpoint does not require a terminology artefact and does not return SNOMED codes.
+
+```powershell
+cargo run --bin snomed-extract -- extract-plan --input "fixtures\example-plan-request.json"
+```
+
+Request shape:
+
+```json
+{
+  "note_id": "example-plan-1",
+  "plan": "Prescribe amoxicillin. Refer to physiotherapy. Issue eMed3. Review in 2 weeks."
+}
+```
+
+Response includes a single deduplicated `plan_entities` list plus span-level evidence in `matches`.
+
 ## HTTP Sidecar
 
 ```powershell
@@ -204,6 +224,7 @@ Then use:
 - `POST /v1/extract-observables` for Objective-only observable entity candidates.
 - `POST /v1/extract-examination-findings` for Objective-only examination finding candidates.
 - `POST /v1/extract-diagnoses` for Assessment-only diagnosis/disorder candidates.
+- `POST /v1/extract-plan` for Plan-only non-SNOMED entity recognition.
 
 See [API usage](docs/USAGE.md) for integration notes and example API calls. The browser page served at `/` is only a local manual test console.
 

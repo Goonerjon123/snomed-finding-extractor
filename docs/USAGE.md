@@ -71,7 +71,8 @@ cargo run --features http --bin snomed-serve -- `
   --port 8060
 ```
 
-You can run only one endpoint by omitting the other artefact options.
+You can run only one coded endpoint by omitting the other artefact options. The
+Plan entity endpoint does not require any artefact.
 For the symptom endpoint, `--body-site-artefact` is optional; when supplied,
 broad symptom matches can carry a nested Body Site SNOMED CT term for openEHR
 template population. It requires `--artefact`. The engine does not invent
@@ -108,6 +109,13 @@ Diagnosis/disorder extraction endpoint:
 
 ```http
 POST http://127.0.0.1:8060/v1/extract-diagnoses
+Content-Type: application/json
+```
+
+Plan entity extraction endpoint:
+
+```http
+POST http://127.0.0.1:8060/v1/extract-plan
 Content-Type: application/json
 ```
 
@@ -171,7 +179,18 @@ The examination findings endpoint deliberately accepts only the `objective` fiel
 
 The diagnosis endpoint deliberately accepts only the `assessment` field. It returns SNOMED CT diagnosis/disorder candidates from the diagnoses artefact.
 
-## 7. Response Shape
+## 7. Plan Entity Request Shape
+
+```json
+{
+  "note_id": "optional-note-id",
+  "plan": "Prescribe amoxicillin. Refer to physiotherapy. Issue eMed3. Review in 2 weeks."
+}
+```
+
+The Plan endpoint deliberately accepts only the `plan` field. It returns non-SNOMED entity categories only: `Prescription`, `Referral`, `eMed3`, `Appointment`, `Investigation`, `Procedure`, `Monitoring`, `Medication Review`, and `Administrative Task`.
+
+## 8. Response Shape
 
 ```json
 {
@@ -230,7 +249,33 @@ non-affirmed exam evidence in `matches`, not only in `suppressed`. For example,
 allowing downstream openEHR exam templates to record normal/negative findings
 explicitly. Affirmed matches omit `assertion`; treat that as `affirmed`.
 
-## 8. Example Client Calls
+## 9. Plan Entity Response Shape
+
+```json
+{
+  "note_id": "optional-note-id",
+  "plan_entities": ["Prescription", "Referral", "eMed3", "Appointment"],
+  "matches": [
+    {
+      "entity": "Prescription",
+      "field": "plan",
+      "span_start": 0,
+      "span_end": 20,
+      "matched_text": "Prescribe amoxicillin",
+      "normalized_match": "prescribe amoxicillin",
+      "rule_ids": ["PLAN_PRESCRIPTION_MEDICATION_ACTION"],
+      "explanation": "Accepted as a Plan entity: Prescription cue in the Plan field."
+    }
+  ],
+  "engine_version": "0.2.0",
+  "ruleset_version": "ruleset-2026-06-15-v6",
+  "elapsed_micros": 120
+}
+```
+
+`plan_entities` is the single deduplicated output of entities involved. `matches` is evidence only and does not contain SNOMED concept IDs.
+
+## 10. Example Client Calls
 
 ```powershell
 $body = @{
@@ -297,7 +342,21 @@ Invoke-RestMethod `
   -Body $body
 ```
 
-## 9. CLI Calls
+Plan entities:
+
+```powershell
+$body = @{
+  plan = "Prescribe amoxicillin. Refer to physiotherapy. Issue eMed3. Review in 2 weeks."
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+  -Uri "http://127.0.0.1:8060/v1/extract-plan" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+## 11. CLI Calls
 
 ```powershell
 cargo run --bin snomed-extract -- extract-observables `
@@ -324,14 +383,20 @@ cargo run --bin snomed-extract -- extract-diagnoses `
   --input "fixtures\example-diagnosis-request.json"
 ```
 
-## 10. Integration Rules
+```powershell
+cargo run --bin snomed-extract -- extract-plan `
+  --input "fixtures\example-plan-request.json"
+```
+
+## 12. Integration Rules
 
 - Treat `matches` as candidate concepts for clinician confirmation, not automatically confirmed record entries.
+- Treat Plan `plan_entities` as workflow categories, not coded clinical findings or diagnoses.
 - Use `suppressed` matches to show why terms were not coded, especially negated and planned findings.
 - Persist `engine_version`, `ruleset_version`, `terminology_version`, and `artefact_hash` with confirmed decisions for traceability.
 - Do not log raw note text in the calling service unless your EPR logging policy explicitly permits it.
 - Rebuild and revalidate the artefact whenever the value set, SNOMED release, synonym export, or ruleset changes.
 
-## 11. Browser Console
+## 13. Browser Console
 
-The server also serves `/` as a local manual test console. This is not the integration surface for the EPR; use `/v1/extract`, `/v1/extract-observables`, `/v1/extract-examination-findings`, and `/v1/extract-diagnoses` for backend integration.
+The server also serves `/` as a local manual test console. This is not the integration surface for the EPR; use `/v1/extract`, `/v1/extract-observables`, `/v1/extract-examination-findings`, `/v1/extract-diagnoses`, and `/v1/extract-plan` for backend integration.

@@ -2,7 +2,7 @@
 
 ## Clinical Safety Statement
 
-The extractor proposes candidate SNOMED CT finding, observable entity, examination finding, and diagnosis/disorder codes for clinician confirmation. It must not silently add findings, observations, or diagnoses to the patient record.
+The extractor proposes candidate SNOMED CT finding, observable entity, examination finding, and diagnosis/disorder codes for clinician confirmation. It also recognises selected non-SNOMED Plan workflow entities. It must not silently add findings, observations, diagnoses, or workflow actions to the patient record.
 
 ## Safety Roles
 

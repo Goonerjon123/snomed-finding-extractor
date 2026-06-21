@@ -5,8 +5,8 @@ use snomed_finding_extractor::rf2::{
 };
 use snomed_finding_extractor::synthetic::{generate_synthetic_cases, SyntheticCase};
 use snomed_finding_extractor::{
-    AliasSet, DiagnosisExtractRequest, ExaminationFindingsExtractRequest, ExtractRequest,
-    Extractor, ObservableExtractRequest, TerminologyArtefact,
+    extract_plan_entities, AliasSet, DiagnosisExtractRequest, ExaminationFindingsExtractRequest,
+    ExtractRequest, Extractor, ObservableExtractRequest, PlanExtractRequest, TerminologyArtefact,
 };
 use std::collections::BTreeSet;
 use std::fs::File;
@@ -62,6 +62,12 @@ enum Command {
         input: Option<PathBuf>,
         #[arg(long)]
         include_suppressed: bool,
+    },
+
+    /// Extract non-SNOMED Plan entity categories from a Plan-only JSON request.
+    ExtractPlan {
+        #[arg(long)]
+        input: Option<PathBuf>,
     },
 
     /// Build an artefact directly from a snoBehr/openEHR value set manifest.
@@ -175,6 +181,12 @@ fn main() -> Result<()> {
                     .context("failed to parse diagnosis extraction request JSON")?;
             request.include_suppressed |= include_suppressed;
             let response = extractor.extract_diagnoses(request)?;
+            println!("{}", serde_json::to_string_pretty(&response)?);
+        }
+        Command::ExtractPlan { input } => {
+            let request: PlanExtractRequest = serde_json::from_str(&read_input(input.as_ref())?)
+                .context("failed to parse Plan extraction request JSON")?;
+            let response = extract_plan_entities(request);
             println!("{}", serde_json::to_string_pretty(&response)?);
         }
         Command::BuildOpenehr {

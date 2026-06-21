@@ -11,6 +11,7 @@ pub mod extractor;
 pub mod matcher;
 pub mod model;
 pub mod normalization;
+pub mod plan;
 pub mod rf2;
 pub mod synthetic;
 pub mod terminology;
@@ -20,9 +21,10 @@ pub use crate::extractor::Extractor;
 pub use crate::matcher::DroppedTerm;
 pub use crate::model::{
     AssertionStatus, BodySiteMatch, DiagnosisExtractRequest, ExaminationFindingsExtractRequest,
-    ExtractRequest, ExtractResponse, FindingMatch, ObservableExtractRequest, SoapField,
-    SuppressedMatch,
+    ExtractRequest, ExtractResponse, FindingMatch, ObservableExtractRequest, PlanEntityKind,
+    PlanEntityMatch, PlanExtractRequest, PlanExtractResponse, SoapField, SuppressedMatch,
 };
+pub use crate::plan::extract_plan_entities;
 pub use crate::terminology::{AliasSet, TerminologyArtefact};
 
 pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
