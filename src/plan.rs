@@ -13,25 +13,26 @@ pub fn extract_plan_entities(request: PlanExtractRequest) -> PlanExtractResponse
     if !request.plan.trim().is_empty() {
         let normalized = normalize_clinical_text(&request.plan, SoapField::Plan);
         let tokens = tokenize(&normalized);
+        let context = PlanMatchContext {
+            original: &request.plan,
+            normalized: &normalized,
+            tokens: &tokens,
+        };
 
-        add_prescription_matches(&mut matches, &request.plan, &normalized, &tokens);
+        add_prescription_matches(&mut matches, &context);
         add_phrase_matches(
             &mut matches,
-            &request.plan,
-            &normalized,
-            &tokens,
+            &context,
             PlanEntityKind::Referral,
             "PLAN_REFERRAL_CUE",
             REFERRAL_PHRASES,
             ContextPolicy::Standard,
         );
-        add_emed3_matches(&mut matches, &request.plan, &normalized, &tokens);
-        add_appointment_matches(&mut matches, &request.plan, &normalized, &tokens);
+        add_emed3_matches(&mut matches, &context);
+        add_appointment_matches(&mut matches, &context);
         add_phrase_matches(
             &mut matches,
-            &request.plan,
-            &normalized,
-            &tokens,
+            &context,
             PlanEntityKind::Investigation,
             "PLAN_INVESTIGATION_CUE",
             INVESTIGATION_PHRASES,
@@ -39,9 +40,7 @@ pub fn extract_plan_entities(request: PlanExtractRequest) -> PlanExtractResponse
         );
         add_phrase_matches(
             &mut matches,
-            &request.plan,
-            &normalized,
-            &tokens,
+            &context,
             PlanEntityKind::Procedure,
             "PLAN_PROCEDURE_CUE",
             PROCEDURE_PHRASES,
@@ -49,9 +48,7 @@ pub fn extract_plan_entities(request: PlanExtractRequest) -> PlanExtractResponse
         );
         add_phrase_matches(
             &mut matches,
-            &request.plan,
-            &normalized,
-            &tokens,
+            &context,
             PlanEntityKind::Monitoring,
             "PLAN_MONITORING_CUE",
             MONITORING_PHRASES,
@@ -59,9 +56,7 @@ pub fn extract_plan_entities(request: PlanExtractRequest) -> PlanExtractResponse
         );
         add_phrase_matches(
             &mut matches,
-            &request.plan,
-            &normalized,
-            &tokens,
+            &context,
             PlanEntityKind::MedicationReview,
             "PLAN_MEDICATION_REVIEW_CUE",
             MEDICATION_REVIEW_PHRASES,
@@ -69,9 +64,7 @@ pub fn extract_plan_entities(request: PlanExtractRequest) -> PlanExtractResponse
         );
         add_phrase_matches(
             &mut matches,
-            &request.plan,
-            &normalized,
-            &tokens,
+            &context,
             PlanEntityKind::AdministrativeTask,
             "PLAN_ADMINISTRATIVE_TASK_CUE",
             ADMINISTRATIVE_TASK_PHRASES,
@@ -111,6 +104,13 @@ struct PlanToken {
 enum ContextPolicy {
     Standard,
     AllowInternalNegation,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PlanMatchContext<'a> {
+    original: &'a str,
+    normalized: &'a NormalizedText,
+    tokens: &'a [PlanToken],
 }
 
 const PRESCRIPTION_PHRASES: &[&str] = &[
@@ -297,37 +297,23 @@ const ADMINISTRATIVE_TASK_PHRASES: &[&str] = &[
     "blue badge",
 ];
 
-fn add_prescription_matches(
-    matches: &mut Vec<PlanEntityMatch>,
-    original: &str,
-    normalized: &NormalizedText,
-    tokens: &[PlanToken],
-) {
+fn add_prescription_matches(matches: &mut Vec<PlanEntityMatch>, context: &PlanMatchContext<'_>) {
     add_phrase_matches(
         matches,
-        original,
-        normalized,
-        tokens,
+        context,
         PlanEntityKind::Prescription,
         "PLAN_PRESCRIPTION_CUE",
         PRESCRIPTION_PHRASES,
         ContextPolicy::Standard,
     );
-    add_medication_action_matches(matches, original, normalized, tokens);
-    add_medication_dose_matches(matches, original, normalized, tokens);
+    add_medication_action_matches(matches, context);
+    add_medication_dose_matches(matches, context);
 }
 
-fn add_emed3_matches(
-    matches: &mut Vec<PlanEntityMatch>,
-    original: &str,
-    normalized: &NormalizedText,
-    tokens: &[PlanToken],
-) {
+fn add_emed3_matches(matches: &mut Vec<PlanEntityMatch>, context: &PlanMatchContext<'_>) {
     add_phrase_matches(
         matches,
-        original,
-        normalized,
-        tokens,
+        context,
         PlanEntityKind::Emed3,
         "PLAN_EMED3_CUE",
         EMED3_PHRASES_STANDARD,
@@ -335,9 +321,7 @@ fn add_emed3_matches(
     );
     add_phrase_matches(
         matches,
-        original,
-        normalized,
-        tokens,
+        context,
         PlanEntityKind::Emed3,
         "PLAN_EMED3_CUE",
         EMED3_PHRASES_ALLOW_NEGATION,
@@ -345,25 +329,18 @@ fn add_emed3_matches(
     );
 }
 
-fn add_appointment_matches(
-    matches: &mut Vec<PlanEntityMatch>,
-    original: &str,
-    normalized: &NormalizedText,
-    tokens: &[PlanToken],
-) {
+fn add_appointment_matches(matches: &mut Vec<PlanEntityMatch>, context: &PlanMatchContext<'_>) {
     add_phrase_matches(
         matches,
-        original,
-        normalized,
-        tokens,
+        context,
         PlanEntityKind::Appointment,
         "PLAN_APPOINTMENT_CUE",
         APPOINTMENT_PHRASES,
         ContextPolicy::Standard,
     );
 
-    for index in 0..tokens.len() {
-        let token = tokens[index].text.as_str();
+    for index in 0..context.tokens.len() {
+        let token = context.tokens[index].text.as_str();
         if !matches!(
             token,
             "review" | "rv" | "see" | "seen" | "follow" | "appointment" | "appt"
@@ -371,14 +348,13 @@ fn add_appointment_matches(
             continue;
         }
 
-        let Some(end_index) = definite_appointment_end(tokens, original, index) else {
+        let Some(end_index) = definite_appointment_end(context.tokens, context.original, index)
+        else {
             continue;
         };
         push_plan_match(
             matches,
-            original,
-            normalized,
-            tokens,
+            context,
             index,
             end_index,
             PlanEntityKind::Appointment,
@@ -390,30 +366,26 @@ fn add_appointment_matches(
 
 fn add_medication_action_matches(
     matches: &mut Vec<PlanEntityMatch>,
-    original: &str,
-    normalized: &NormalizedText,
-    tokens: &[PlanToken],
+    context: &PlanMatchContext<'_>,
 ) {
-    for index in 0..tokens.len() {
-        if !is_prescription_action(tokens[index].text.as_str()) {
+    for index in 0..context.tokens.len() {
+        if !is_prescription_action(context.tokens[index].text.as_str()) {
             continue;
         }
 
         let mut current = index + 1;
-        while current < tokens.len() && current <= index + 7 {
+        while current < context.tokens.len() && current <= index + 7 {
             if original_gap_has_hard_boundary(
-                original,
-                tokens[index].original_end,
-                tokens[current].original_start,
+                context.original,
+                context.tokens[index].original_end,
+                context.tokens[current].original_start,
             ) {
                 break;
             }
-            if is_medication_object(tokens[current].text.as_str()) {
+            if is_medication_object(context.tokens[current].text.as_str()) {
                 push_plan_match(
                     matches,
-                    original,
-                    normalized,
-                    tokens,
+                    context,
                     index,
                     current + 1,
                     PlanEntityKind::Prescription,
@@ -422,7 +394,7 @@ fn add_medication_action_matches(
                 );
                 break;
             }
-            if !is_prescription_filler(tokens[current].text.as_str()) {
+            if !is_prescription_filler(context.tokens[current].text.as_str()) {
                 break;
             }
             current += 1;
@@ -430,31 +402,26 @@ fn add_medication_action_matches(
     }
 }
 
-fn add_medication_dose_matches(
-    matches: &mut Vec<PlanEntityMatch>,
-    original: &str,
-    normalized: &NormalizedText,
-    tokens: &[PlanToken],
-) {
-    for index in 0..tokens.len() {
-        if !is_medication_object(tokens[index].text.as_str()) {
+fn add_medication_dose_matches(matches: &mut Vec<PlanEntityMatch>, context: &PlanMatchContext<'_>) {
+    for index in 0..context.tokens.len() {
+        if !is_medication_object(context.tokens[index].text.as_str()) {
             continue;
         }
 
         let mut end_index = None;
         let mut current = index + 1;
-        while current < tokens.len() && current <= index + 4 {
+        while current < context.tokens.len() && current <= index + 4 {
             if original_gap_has_hard_boundary(
-                original,
-                tokens[index].original_end,
-                tokens[current].original_start,
+                context.original,
+                context.tokens[index].original_end,
+                context.tokens[current].original_start,
             ) {
                 break;
             }
-            if is_dose_or_frequency(tokens[current].text.as_str()) {
+            if is_dose_or_frequency(context.tokens[current].text.as_str()) {
                 end_index = Some(current + 1);
             } else if !matches!(
-                tokens[current].text.as_str(),
+                context.tokens[current].text.as_str(),
                 "for" | "to" | "x" | "a" | "an" | "the" | "and"
             ) {
                 break;
@@ -465,9 +432,7 @@ fn add_medication_dose_matches(
         if let Some(end_index) = end_index {
             push_plan_match(
                 matches,
-                original,
-                normalized,
-                tokens,
+                context,
                 index,
                 end_index,
                 PlanEntityKind::Prescription,
@@ -480,9 +445,7 @@ fn add_medication_dose_matches(
 
 fn add_phrase_matches(
     matches: &mut Vec<PlanEntityMatch>,
-    original: &str,
-    normalized: &NormalizedText,
-    tokens: &[PlanToken],
+    context: &PlanMatchContext<'_>,
     entity: PlanEntityKind,
     rule_id: &'static str,
     phrases: &[&str],
@@ -493,13 +456,11 @@ fn add_phrase_matches(
         if phrase_tokens.is_empty() {
             continue;
         }
-        for start_index in 0..tokens.len() {
-            if tokens_match_phrase(tokens, start_index, &phrase_tokens) {
+        for start_index in 0..context.tokens.len() {
+            if tokens_match_phrase(context.tokens, start_index, &phrase_tokens) {
                 push_plan_match(
                     matches,
-                    original,
-                    normalized,
-                    tokens,
+                    context,
                     start_index,
                     start_index + phrase_tokens.len(),
                     entity,
@@ -513,24 +474,28 @@ fn add_phrase_matches(
 
 fn push_plan_match(
     matches: &mut Vec<PlanEntityMatch>,
-    original: &str,
-    normalized: &NormalizedText,
-    tokens: &[PlanToken],
+    context: &PlanMatchContext<'_>,
     start_index: usize,
     end_index: usize,
     entity: PlanEntityKind,
     rule_id: &'static str,
     policy: ContextPolicy,
 ) {
-    if start_index >= end_index || end_index > tokens.len() {
+    if start_index >= end_index || end_index > context.tokens.len() {
         return;
     }
-    if context_blocks_match(policy, tokens, original, start_index, end_index) {
+    if context_blocks_match(
+        policy,
+        context.tokens,
+        context.original,
+        start_index,
+        end_index,
+    ) {
         return;
     }
 
-    let start_token = &tokens[start_index];
-    let end_token = &tokens[end_index - 1];
+    let start_token = &context.tokens[start_index];
+    let end_token = &context.tokens[end_index - 1];
     let span_start = start_token.original_start;
     let span_end = end_token.original_end;
     let normalized_start = start_token.normalized_start;
@@ -541,8 +506,8 @@ fn push_plan_match(
         field: SoapField::Plan,
         span_start,
         span_end,
-        matched_text: original[span_start..span_end].to_string(),
-        normalized_match: normalized.text[normalized_start..normalized_end].to_string(),
+        matched_text: context.original[span_start..span_end].to_string(),
+        normalized_match: context.normalized.text[normalized_start..normalized_end].to_string(),
         rule_ids: vec![rule_id.to_string()],
         explanation: format!(
             "Accepted as a Plan entity: {} cue in the Plan field.",
