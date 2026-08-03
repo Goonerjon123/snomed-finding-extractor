@@ -84,3 +84,24 @@ fn blocks_conditional_or_declined_actions() {
 
     assert!(entities.is_empty());
 }
+
+#[test]
+fn recognises_common_investigation_shorthand() {
+    for plan in ["CXR", "Arrange CXR", "bloods", "Arrange bloods"] {
+        assert_eq!(
+            extract(plan),
+            vec![PlanEntityKind::Investigation],
+            "expected an Investigation entity for {plan:?}"
+        );
+    }
+}
+
+#[test]
+fn suppresses_negated_conditional_or_declined_investigations() {
+    for plan in ["No CXR", "Consider CXR if worse", "CXR declined"] {
+        assert!(
+            extract(plan).is_empty(),
+            "did not expect an Investigation entity for {plan:?}"
+        );
+    }
+}

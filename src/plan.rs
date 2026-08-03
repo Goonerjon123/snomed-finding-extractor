@@ -186,6 +186,7 @@ const APPOINTMENT_PHRASES: &[&str] = &[
 ];
 
 const INVESTIGATION_PHRASES: &[&str] = &[
+    "cxr",
     "blood test",
     "blood tests",
     "bloods",
@@ -592,7 +593,10 @@ fn context_blocks_match(
         ) {
             break;
         }
-        if token.text == "if" || token.text == "unless" {
+        if token.text == "if"
+            || token.text == "unless"
+            || is_following_blocker(token.text.as_str())
+        {
             return true;
         }
     }
@@ -810,6 +814,13 @@ fn is_preceding_blocker(token: &str) -> bool {
             | "cancel"
             | "cancelled"
             | "canceled"
+    )
+}
+
+fn is_following_blocker(token: &str) -> bool {
+    matches!(
+        token,
+        "declined" | "refused" | "deferred" | "cancelled" | "canceled"
     )
 }
 
