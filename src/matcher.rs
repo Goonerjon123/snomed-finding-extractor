@@ -482,6 +482,19 @@ impl TerminologyMatcher {
             }
         }
 
+        // "Feeling sick of work" is an idiom, not evidence of nausea. Apply
+        // this to exact and morphological alias matches without crossing a
+        // sentence boundary ("feeling sick. Of note ..." remains a symptom).
+        matches.retain(|found| {
+            !(found
+                .pattern_source
+                .starts_with("clinical_alias:patient-language-v1")
+                && found.normalized_match.ends_with(" sick")
+                && text[found.span_end..]
+                    .split_whitespace()
+                    .next()
+                    .is_some_and(|word| word.eq_ignore_ascii_case("of")))
+        });
         remove_subsumed_overlapping_matches(&mut matches);
 
         matches
@@ -622,6 +635,7 @@ fn is_official_term_source(source: &str) -> bool {
             | "openehr-description-preferred"
             | "openehr-description-synonym"
             | "openehr-description-expansion"
+            | "rf2-synonym"
     )
 }
 

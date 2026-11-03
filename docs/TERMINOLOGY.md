@@ -72,7 +72,10 @@ Do not commit:
 - generated production artefacts derived from licensed SNOMED content;
 - large value set exports unless licensing and repository visibility have been approved.
 
-The repo includes only tiny synthetic fixtures with fake concept IDs for tests.
+The repo includes tiny constructed fixtures, not production terminology
+snapshots. Most fixtures use fake concept IDs; the patient-language regression
+uses the eight target IDs and labels from the bundled local alias set to test
+identity guards. Licensed full-terminology validation inputs stay outside Git.
 
 ## Artefact Content
 
@@ -88,6 +91,7 @@ The generated artefact contains:
 - runtime variants;
 - built-in observable aliases for common Objective abbreviations when the matching observable concept is present in the artefact;
 - reviewed clinical aliases, when supplied at build time as a fallback for content not present in the export;
+- the versioned [bundled patient-language aliases](ALIASES.md#bundled-patient-language), restricted to active concepts already in the input; their clinical review status is recorded separately in the hazard log;
 - artefact hash.
 
 ## Build Modes

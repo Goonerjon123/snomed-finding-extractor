@@ -26,6 +26,13 @@ Primary controls:
 - artefact and ruleset versioning;
 - regression testing from incidents.
 
+The draft patient-language change [H-016](HAZARD_LOG.md#h-016--patient-language-maps-to-an-incorrect-clinical-concept)
+adds explicit symptom paraphrases within the existing refset and confirmation
+workflow. Its alias coverage and clinical equivalence require terminologist and
+CSO review before release. Automated fixture and packaged-terminology results
+are engineering evidence only; they do not establish clinical acceptance or
+change the deployment preconditions below.
+
 ## Deployment Preconditions
 
 Before deployment:
