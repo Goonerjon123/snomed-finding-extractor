@@ -192,6 +192,20 @@ impl TerminologyArtefact {
         self.artefact_hash = self.compute_hash()?;
         Ok(())
     }
+
+    /// Bundled patient wording only augments active concepts already in scope.
+    /// The existing alias importer checks each target's expected display term
+    /// and records the aliases in the artefact hash and match provenance.
+    pub(crate) fn apply_patient_language_aliases(&mut self) -> Result<()> {
+        let mut aliases: AliasSet =
+            serde_json::from_str(include_str!("../aliases/patient-language-v1.json"))?;
+        aliases.aliases.retain(|alias| {
+            self.concepts
+                .iter()
+                .any(|concept| concept.active && concept.concept_id == alias.concept_id)
+        });
+        self.apply_aliases(aliases)
+    }
 }
 
 impl ConceptEntry {

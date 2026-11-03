@@ -18,6 +18,7 @@ This is a v0.2 implementation with:
 - Plan-only non-SNOMED entity recognition for Prescription, Referral, eMed3, Appointment, Investigation, Procedure, Monitoring, Medication Review, and Administrative Task.
 - RF2 snapshot/refset importer for future full SNOMED synonym enrichment.
 - Runtime UK GP shorthand expansion (`c/o`, `o/e`, `h/o`, `d&v`, `sob`, `fhx`, ...) with span-preserving maps.
+- Bundled patient-language aliases for eight symptom concepts, including `sore chest` / `chest hurts` → Chest pain. Both terminology builders include these aliases for active, in-scope concepts; existing artefacts must be rebuilt. See [clinical aliases](docs/ALIASES.md#bundled-patient-language).
 - Terminology-derived variants for safe shorthand, including official acronym prefixes, simple diabetes mellitus phrases, morphology variants, flexible body-site sign phrases, examination phrases such as `X on auscultation`, and numeric-only observable labels.
 - Deterministic matcher and a clause-scoped assertion engine.
 - Synthetic corpus generation and evaluation harness.

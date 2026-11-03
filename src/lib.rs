@@ -28,4 +28,4 @@ pub use crate::plan::extract_plan_entities;
 pub use crate::terminology::{AliasSet, TerminologyArtefact};
 
 pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RULESET_VERSION: &str = "ruleset-2026-06-15-v6";
+pub const RULESET_VERSION: &str = "ruleset-2026-11-03-v7";

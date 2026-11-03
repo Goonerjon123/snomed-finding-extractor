@@ -593,9 +593,7 @@ fn context_blocks_match(
         ) {
             break;
         }
-        if token.text == "if"
-            || token.text == "unless"
-            || is_following_blocker(token.text.as_str())
+        if token.text == "if" || token.text == "unless" || is_following_blocker(token.text.as_str())
         {
             return true;
         }

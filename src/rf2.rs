@@ -124,7 +124,7 @@ pub fn build_from_openehr_valueset(path: impl AsRef<Path>) -> Result<Terminology
         concepts,
         artefact_hash: String::new(),
     };
-    artefact.artefact_hash = artefact.compute_hash()?;
+    artefact.apply_patient_language_aliases()?;
     Ok(artefact)
 }
 
@@ -243,7 +243,7 @@ pub fn build_from_rf2_snapshot<P: AsRef<Path>>(
         concepts,
         artefact_hash: String::new(),
     };
-    artefact.artefact_hash = artefact.compute_hash()?;
+    artefact.apply_patient_language_aliases()?;
     Ok(artefact)
 }
 

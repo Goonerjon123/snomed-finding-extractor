@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "name": "patient-language-v1",
+  "aliases": [
+    {
+      "concept_id": "29857009",
+      "expected_preferred_term": "Chest pain",
+      "terms": ["sore chest", "chest is sore", "chest feels sore", "chest soreness", "chest hurts", "chest is hurting", "chest aches", "aching chest", "chest ache"],
+      "source": "patient-language-v1"
+    },
+    {
+      "concept_id": "21522001",
+      "expected_preferred_term": "Abdominal pain",
+      "terms": ["sore tummy", "tummy is sore", "tummy hurts", "tummy ache", "tummy aches", "sore belly", "belly hurts", "belly ache", "stomach hurts", "stomach ache"],
+      "source": "patient-language-v1"
+    },
+    {
+      "concept_id": "161891005",
+      "expected_preferred_term": "Backache",
+      "terms": ["sore back", "back is sore", "back feels sore", "back hurts", "back is hurting", "back aches", "aching back"],
+      "source": "patient-language-v1"
+    },
+    {
+      "concept_id": "25064002",
+      "expected_preferred_term": "Headache",
+      "terms": ["head hurts", "head is hurting", "head aches", "aching head"],
+      "source": "patient-language-v1"
+    },
+    {
+      "concept_id": "422587007",
+      "expected_preferred_term": "Nausea",
+      "terms": ["feeling sick", "feels sick", "feel sick", "feeling queasy", "feels queasy", "feel queasy"],
+      "source": "patient-language-v1"
+    },
+    {
+      "concept_id": "422400008",
+      "expected_preferred_term": "Vomiting",
+      "terms": ["throwing up", "threw up"],
+      "source": "patient-language-v1"
+    },
+    {
+      "concept_id": "49650001",
+      "expected_preferred_term": "Dysuria",
+      "terms": ["hurts to pee", "hurts when peeing", "pain when peeing", "burning when peeing", "stings when peeing", "stings when passing urine", "hurts to wee", "hurts when weeing", "burning when weeing"],
+      "source": "patient-language-v1"
+    },
+    {
+      "concept_id": "267036007",
+      "expected_preferred_term": "Dyspnea",
+      "terms": ["out of breath", "short of breath", "shortness of breath"],
+      "source": "patient-language-v1"
+    }
+  ]
+}
